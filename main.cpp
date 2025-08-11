@@ -9,17 +9,22 @@
 
 #define BUTTON_ID 1
 
-// Shared variables
-std::atomic<bool> running(true);
-// std::string lastMessage = "";
-CRITICAL_SECTION lastMessageLock; // To protect lastMessage access from multiple threads
-
 struct ListenerParams {
     const char* localIP;
     int localPort;
     const char* allowedSenderIP;
     int allowedSenderPort;
 };
+
+// Shared variables
+bool listenersStarted = false;
+char input_id_c[256], input_1[256], input_2[256];
+int input_port_1, input_port_2;
+std::thread threads[4];
+std::atomic<bool> running(true);
+std::string input_id;
+ListenerParams listeners[4];
+CRITICAL_SECTION lastMessageLock; // To protect lastMessage access from multiple threads
 
 void udpListener(ListenerParams params)
 {
@@ -55,8 +60,7 @@ void udpListener(ListenerParams params)
     // File name like "received_messages_5555.txt"
     char fileName[64];
     sprintf_s(fileName, "received_messages_%d.txt", params.localPort);
-    // std::ofstream MyFile(fileName, std::ios::binary);
-    std::ofstream MyFile(fileName);
+    std::ofstream MyFile(fileName, std::ios::binary);
 
     if (!MyFile.is_open()) {
         char err[128];
@@ -151,25 +155,74 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
     HWND hwnd = CreateWindowEx(
         0, CLASS_NAME, "UDP Listener with GUI",
         WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT, 400, 200,
+        CW_USEDEFAULT, CW_USEDEFAULT, 500, 300,
         NULL, NULL, hInstance, NULL);
 
     if (hwnd == NULL) return 0;
 
+    // Create labels (static text) above each input box
+    CreateWindow(
+        "STATIC", "UDP IP:",
+        WS_CHILD | WS_VISIBLE | SS_LEFT,
+        20, 10, 100, 20,
+        hwnd, NULL, hInstance, NULL);
+
+    CreateWindow(
+        "STATIC", "Destination Port 1:",
+        WS_CHILD | WS_VISIBLE | SS_LEFT,
+        20, 70, 150, 20,
+        hwnd, NULL, hInstance, NULL);
+
+    CreateWindow(
+        "STATIC", "Destination Port 2:",
+        WS_CHILD | WS_VISIBLE | SS_LEFT,
+        20, 130, 150, 20,
+        hwnd, NULL, hInstance, NULL);
+
+    // Create three edit controls (text inputs)
+    CreateWindow(
+        "EDIT", "",
+        WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT,
+        20, 40, 160, 20,
+        hwnd, (HMENU)1001, hInstance, NULL);
+
+    CreateWindow(
+        "EDIT", "",
+        WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT,
+        20, 100, 160, 20,
+        hwnd, (HMENU)1002, hInstance, NULL);
+
+    CreateWindow(
+        "EDIT", "",
+        WS_CHILD | WS_VISIBLE | WS_BORDER | ES_LEFT,
+        20, 160, 160, 20,
+        hwnd, (HMENU)1003, hInstance, NULL);
+
+    // Your existing button
     CreateWindow(
         "BUTTON", "Stop and Save",
         WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-        140, 70, 120, 40,
+        20, 200, 120, 40,
         hwnd, (HMENU)BUTTON_ID, hInstance, NULL);
 
     ShowWindow(hwnd, nCmdShow);
 
+    GetWindowText(GetDlgItem(hwnd, 1001), input_id_c, sizeof(input_id_c));
+    GetWindowText(GetDlgItem(hwnd, 1002), input_1, sizeof(input_1));
+    GetWindowText(GetDlgItem(hwnd, 1003), input_2, sizeof(input_2));
+
+    input_id = std::string(input_id_c);
+
+    input_port_1 = atoi(input_1);
+    input_port_2 = atoi(input_2);
+
+
     // Define 4 listeners with ports and allowed sender IP/port as you want
     ListenerParams listeners[4] = {
-        {"127.0.0.1", 5555, "127.0.0.1", 61455},
-        {"127.0.0.1", 5556, "127.0.0.1", 61455},
-        {"127.0.0.1", 6666, "127.0.0.1", 61455},
-        {"127.0.0.1", 6667, "127.0.0.1", 61455}
+        {"127.0.0.1", input_port_1, "127.0.0.1", },
+        {"127.0.0.1", (input_port_1 + 1), "127.0.0.1", },
+        {"127.0.0.1", input_port_2, "127.0.0.1", },
+        {"127.0.0.1", (input_port_2 + 1), "127.0.0.1", }
     };
 
 
