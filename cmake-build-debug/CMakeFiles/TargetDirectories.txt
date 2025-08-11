@@ -1,0 +1,3 @@
+C:/Users/elifd/CLionProjects/UDPNetworkCapturer/cmake-build-debug/CMakeFiles/UDPNetworkCapturer.dir
+C:/Users/elifd/CLionProjects/UDPNetworkCapturer/cmake-build-debug/CMakeFiles/edit_cache.dir
+C:/Users/elifd/CLionProjects/UDPNetworkCapturer/cmake-build-debug/CMakeFiles/rebuild_cache.dir

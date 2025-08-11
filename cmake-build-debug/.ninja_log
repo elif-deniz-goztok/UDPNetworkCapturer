@@ -1,0 +1,6 @@
+# ninja log v6
+5	1434	7765998960083785	CMakeFiles/UDPNetworkCapturer.dir/main.cpp.obj	fd18ab1e2896eb1b
+1434	1513	7765998974385747	UDPNetworkCapturer.exe	9a5d68df9f10281e
+3	278	7766001414948373	build.ninja	b1e82ed01f52641f
+15	1681	7766003575917987	CMakeFiles/UDPNetworkCapturer.dir/main.cpp.obj	fd18ab1e2896eb1b
+1682	1818	7766003592581184	UDPNetworkCapturer.exe	9a5d68df9f10281e
