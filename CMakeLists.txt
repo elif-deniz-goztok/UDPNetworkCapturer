@@ -6,3 +6,5 @@ set(CMAKE_CXX_STANDARD 11)
 add_executable(UDPNetworkCapturer main.cpp)
 
 target_link_libraries(UDPNetworkCapturer PRIVATE ws2_32)
+
+target_link_libraries(UDPNetworkCapturer PRIVATE iphlpapi ws2_32)

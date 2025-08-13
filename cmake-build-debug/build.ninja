@@ -65,7 +65,7 @@ build CMakeFiles/UDPNetworkCapturer.dir/main.cpp.obj: CXX_COMPILER__UDPNetworkCa
 
 build UDPNetworkCapturer.exe: CXX_EXECUTABLE_LINKER__UDPNetworkCapturer_Debug CMakeFiles/UDPNetworkCapturer.dir/main.cpp.obj
   FLAGS = -g
-  LINK_LIBRARIES = -lws2_32  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
+  LINK_LIBRARIES = -lws2_32  -liphlpapi  -lws2_32  -liphlpapi  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32
   OBJECT_DIR = CMakeFiles\UDPNetworkCapturer.dir
   POST_BUILD = cd .
   PRE_LINK = cd .

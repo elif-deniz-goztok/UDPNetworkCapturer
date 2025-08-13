@@ -1,8 +1,3 @@
-/*
-Added the source destination input to the GUI. Should test if that part works.
-Must change test algo, tests use src_addr and dst_addr as same rn so it never fails.
- */
-
 #include <winsock2.h>
 #include <windows.h>
 #include <iostream>
@@ -10,6 +5,9 @@ Must change test algo, tests use src_addr and dst_addr as same rn so it never fa
 #include <thread>
 #include <atomic>
 #include <string>
+#include <iphlpapi.h>
+#include <ws2tcpip.h>
+#pragma comment(lib, "iphlpapi.lib")
 #pragma comment(lib, "ws2_32.lib")
 
 #define BUTTON1_ID 101
@@ -21,6 +19,7 @@ HWND hText1, hInput1;
 HWND hText2, hInput2;
 HWND hText3, hInput3;
 HWND hText4, hInput4;
+HWND ipText;
 HWND hButton1;
 
 // Scene 2 controls (all EDIT boxes instead of static)
@@ -36,7 +35,7 @@ std::atomic<bool> running(false); // Start as false, start listeners only on but
 char input_dst_ip[256], input_src_ip[256], input_1[256], input_2[256];
 int input_port_1, input_port_2;
 std::string input_dst_ip_str, input_src_ip_str;
-CRITICAL_SECTION lastMessageLock; // To protect lastMessage access from multiple threads
+std::wstring ethernet_addr, result;
 
 struct ListenerParams {
     const char* localIP;
@@ -48,6 +47,7 @@ struct ListenerParams {
 std::thread threads[4];
 ListenerParams listeners[4];
 bool listenersStarted = false;
+bool found_address = false;
 
 void ShowScene1(BOOL show)
 {
@@ -60,6 +60,9 @@ void ShowScene1(BOOL show)
     ShowWindow(hText4, show);
     ShowWindow(hInput4, show);
     ShowWindow(hButton1, show);
+    if (found_address) {
+        ShowWindow(ipText, show);
+    }
 }
 
 void ShowScene2(BOOL show)
@@ -77,7 +80,46 @@ void ShowScene3(BOOL show)
     ShowWindow(hButton3, show);
 }
 
-void change_test_text(int port_num, int ports[], std::string test_message) {
+std::wstring find_ethernet_address() {
+    ULONG outBufLen = 15000;
+    auto adapterAddresses = reinterpret_cast<PIP_ADAPTER_ADDRESSES>(malloc(outBufLen));
+    if (!adapterAddresses) return L"";
+
+    ULONG retVal = GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_PREFIX, nullptr, adapterAddresses, &outBufLen);
+    if (retVal == ERROR_BUFFER_OVERFLOW) {
+        free(adapterAddresses);
+        adapterAddresses = reinterpret_cast<PIP_ADAPTER_ADDRESSES>(malloc(outBufLen));
+        if (!adapterAddresses) return L"";
+        retVal = GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_PREFIX, nullptr, adapterAddresses, &outBufLen);
+        free(adapterAddresses);
+    }
+
+
+
+    if (retVal == NO_ERROR) {
+        for (PIP_ADAPTER_ADDRESSES adapter = adapterAddresses; adapter; adapter = adapter->Next) {
+            if (adapter->IfType == IF_TYPE_ETHERNET_CSMACD &&
+                wcscmp(adapter->FriendlyName, L"Ethernet") == 0) {
+
+                for (PIP_ADAPTER_UNICAST_ADDRESS unicast = adapter->FirstUnicastAddress;
+                     unicast;
+                     unicast = unicast->Next) {
+
+                    if (unicast->Address.lpSockaddr->sa_family == AF_INET) {
+                        auto* ipv4 = reinterpret_cast<sockaddr_in*>(unicast->Address.lpSockaddr);
+                        std::string ipStr = inet_ntoa(ipv4->sin_addr);
+                        result = std::wstring(ipStr.begin(), ipStr.end()); // simple conversion
+                        break;
+                    }
+                }
+                }
+            if (!result.empty()) break; // Stop once found
+        }
+    }
+    return result; // Empty if not found
+}
+
+void change_test_text(int port_num, int ports[], const std::string& test_message) {
     std::string full_message = "Port " + std::to_string(ports[port_num]) + ": " + test_message;
 
     switch (port_num) {
@@ -97,7 +139,6 @@ void change_test_text(int port_num, int ports[], std::string test_message) {
             break;
     }
 }
-
 
 void udpListener(ListenerParams params)
 {
@@ -271,26 +312,25 @@ bool testUdpCommunication(const char* localIP, int ports[], int portCount)
             // timeout
             break;
         }
-        else if (selectRes == SOCKET_ERROR) {
+        if (selectRes == SOCKET_ERROR) {
             for (int i = 0; i < portCount; ++i) {
                 change_test_text(i, ports,"select() failed during test.");
             }
             break;
         }
-        else {
-            for (int i = 0; i < portCount; ++i) {
-                if (!received[i] && FD_ISSET(recvSockets[i], &readfds)) {
-                    sockaddr_in fromAddr{};
-                    int fromLen = sizeof(fromAddr);
-                    int recvLen = recvfrom(recvSockets[i], buffer, sizeof(buffer) - 1, 0,
-                                           reinterpret_cast<sockaddr*>(&fromAddr), &fromLen);
-                    if (recvLen > 0) {
-                        buffer[recvLen] = '\0';
-                        if (strcmp(buffer, "TEST_MESSAGE") == 0) {
-                            received[i] = true;
-                            change_test_text(i, ports,"Tests successful.");
-                            remaining--;
-                        }
+
+        for (int i = 0; i < portCount; ++i) {
+            if (!received[i] && FD_ISSET(recvSockets[i], &readfds)) {
+                sockaddr_in fromAddr{};
+                int fromLen = sizeof(fromAddr);
+                int recvLen = recvfrom(recvSockets[i], buffer, sizeof(buffer) - 1, 0,
+                                       reinterpret_cast<sockaddr*>(&fromAddr), &fromLen);
+                if (recvLen > 0) {
+                    buffer[recvLen] = '\0';
+                    if (strcmp(buffer, "TEST_MESSAGE") == 0) {
+                        received[i] = true;
+                        change_test_text(i, ports,"Tests successful.");
+                        remaining--;
                     }
                 }
             }
@@ -315,32 +355,54 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     case WM_CREATE:
     {
         // Scene 1: Text labels as EDIT boxes, plus input boxes as EDIT boxes
-        // Since you want no static texts, we make them all EDIT boxes
-        hText1 = CreateWindow("EDIT", "UDP Source IP:", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_LEFT, 20, 10, 150, 20, hwnd, nullptr, nullptr, nullptr);
-        hInput1 = CreateWindow("EDIT", "", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_LEFT, 20, 40, 150, 20, hwnd, reinterpret_cast<HMENU>(201), nullptr, nullptr);
+        hText1 = CreateWindowW(L"EDIT", L"UDP Source IP:", WS_VISIBLE | WS_CHILD | ES_LEFT,
+                               20, 10, 150, 20, hwnd, nullptr, nullptr, nullptr);
+        hInput1 = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_LEFT,
+                                20, 40, 150, 20, hwnd, reinterpret_cast<HMENU>(201), nullptr, nullptr);
 
-        hText2 = CreateWindow("EDIT", "UDP Destination IP:", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_LEFT, 20, 70, 150, 20, hwnd, nullptr, nullptr, nullptr);
-        hInput2 = CreateWindow("EDIT", "", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_LEFT, 20, 100, 150, 20, hwnd, reinterpret_cast<HMENU>(202), nullptr, nullptr);
+        hText2 = CreateWindowW(L"EDIT", L"UDP Destination IP:", WS_VISIBLE | WS_CHILD | ES_LEFT,
+                               20, 70, 150, 20, hwnd, nullptr, nullptr, nullptr);
+        hInput2 = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_LEFT,
+                                20, 100, 150, 20, hwnd, reinterpret_cast<HMENU>(202), nullptr, nullptr);
 
-        hText3 = CreateWindow("EDIT", "UDP Port 1:", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_LEFT, 20, 130, 150, 20, hwnd, nullptr, nullptr, nullptr);
-        hInput3 = CreateWindow("EDIT", "", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_LEFT, 20, 160, 150, 20, hwnd, reinterpret_cast<HMENU>(203), nullptr, nullptr);
+        hText3 = CreateWindowW(L"EDIT", L"UDP Port 1:", WS_VISIBLE | WS_CHILD | ES_LEFT,
+                               20, 130, 150, 20, hwnd, nullptr, nullptr, nullptr);
+        hInput3 = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_LEFT,
+                                20, 160, 150, 20, hwnd, reinterpret_cast<HMENU>(203), nullptr, nullptr);
 
-        hText4 = CreateWindow("EDIT", "UDP Port 2", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_LEFT, 20, 190, 150, 20, hwnd, nullptr, nullptr, nullptr);
-        hInput4 = CreateWindow("EDIT", "", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_LEFT, 20, 220, 150, 20, hwnd, reinterpret_cast<HMENU>(204), nullptr, nullptr);
+        hText4 = CreateWindowW(L"EDIT", L"UDP Port 2", WS_VISIBLE | WS_CHILD | ES_LEFT,
+                               20, 190, 150, 20, hwnd, nullptr, nullptr, nullptr);
+        hInput4 = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_LEFT,
+                                20, 220, 150, 20, hwnd, reinterpret_cast<HMENU>(204), nullptr, nullptr);
 
-        hButton1 = CreateWindow("BUTTON", "Test Connections", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON, 20, 250, 150, 20, hwnd, reinterpret_cast<HMENU>(BUTTON1_ID), nullptr, nullptr);
+        hButton1 = CreateWindowW(L"BUTTON", L"Test Connections", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
+                                 20, 260, 150, 20, hwnd, reinterpret_cast<HMENU>(BUTTON1_ID), nullptr, nullptr);
+
+        if (found_address) {
+            std::wstring text = L"Possible Destination IP: " + ethernet_addr + L" (Ethernet IP)";
+            ipText = CreateWindowW(L"EDIT", text.c_str(),
+                                    WS_CHILD | ES_LEFT,
+                                    20, 300, 350, 20, hwnd, nullptr, nullptr, nullptr);
+        }
 
         // Scene 2: all texts as EDIT boxes (no static)
-        test_text_1 = CreateWindow("EDIT", "Test port", WS_CHILD | WS_BORDER | ES_LEFT, 20, 20, 240, 20, hwnd, nullptr, nullptr, nullptr);
-        test_text_2 = CreateWindow("EDIT", "Test port", WS_CHILD | WS_BORDER | ES_LEFT, 20, 50, 240, 20, hwnd, nullptr, nullptr, nullptr);
-        test_text_3 = CreateWindow("EDIT", "Test port", WS_CHILD | WS_BORDER | ES_LEFT, 20, 80, 240, 20, hwnd, nullptr, nullptr, nullptr);
-        test_text_4 = CreateWindow("EDIT", "Test port", WS_CHILD | WS_BORDER | ES_LEFT, 20, 110, 240, 20, hwnd, nullptr, nullptr, nullptr);
+        test_text_1 = CreateWindowW(L"EDIT", L"Test port", WS_CHILD | ES_LEFT,
+                                    20, 20, 240, 20, hwnd, nullptr, nullptr, nullptr);
+        test_text_2 = CreateWindowW(L"EDIT", L"Test port", WS_CHILD | ES_LEFT,
+                                    20, 50, 240, 20, hwnd, nullptr, nullptr, nullptr);
+        test_text_3 = CreateWindowW(L"EDIT", L"Test port", WS_CHILD | ES_LEFT,
+                                    20, 80, 240, 20, hwnd, nullptr, nullptr, nullptr);
+        test_text_4 = CreateWindowW(L"EDIT", L"Test port", WS_CHILD | ES_LEFT,
+                                    20, 110, 240, 20, hwnd, nullptr, nullptr, nullptr);
 
-        hButton2 = CreateWindow("BUTTON", "Start Capturing", WS_CHILD | BS_PUSHBUTTON, 110, 150, 100, 30, hwnd, reinterpret_cast<HMENU>(BUTTON2_ID), nullptr, nullptr);
+        hButton2 = CreateWindowW(L"BUTTON", L"Start Capturing", WS_CHILD | BS_PUSHBUTTON,
+                                 110, 150, 100, 30, hwnd, reinterpret_cast<HMENU>(BUTTON2_ID), nullptr, nullptr);
 
         // Scene 3: text 8 as EDIT box and button
-        capturing_text = CreateWindow("EDIT", "Capturing UDP Packets", WS_CHILD | WS_BORDER | ES_LEFT, 20, 50, 240, 20, hwnd, nullptr, nullptr, nullptr);
-        hButton3 = CreateWindow("BUTTON", "Stop Capturing", WS_CHILD | BS_PUSHBUTTON, 110, 100, 100, 30, hwnd, reinterpret_cast<HMENU>(BUTTON3_ID), nullptr, nullptr);
+        capturing_text = CreateWindowW(L"EDIT", L"Capturing UDP Packets", WS_CHILD | WS_BORDER | ES_LEFT,
+                                       20, 50, 240, 20, hwnd, nullptr, nullptr, nullptr);
+        hButton3 = CreateWindowW(L"BUTTON", L"Stop Capturing", WS_CHILD | BS_PUSHBUTTON,
+                                 110, 100, 100, 30, hwnd, reinterpret_cast<HMENU>(BUTTON3_ID), nullptr, nullptr);
 
         // Show only scene 1 at start
         ShowScene1(TRUE);
@@ -349,6 +411,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
         break;
     }
+
 
     case WM_COMMAND:{
         switch (LOWORD(wParam)) {
@@ -391,14 +454,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 ShowScene2(FALSE);
                 ShowScene3(TRUE);
 
-                /*
-                struct ListenerParams {
-                    const char* localIP;
-                    int localPort;
-                    const char* allowedSenderIP;
-                    }
-                 */
-
                 // Initialize listeners with user input
                 listeners[0] = { input_src_ip, (input_port_1), input_dst_ip};
                 listeners[1] = { input_src_ip, (input_port_1 + 1), input_dst_ip};
@@ -412,7 +467,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     threads[i] = std::thread(udpListener, listeners[i]);
                 }
                 listenersStarted = true;
-                // MessageBox(hwnd, "Listeners started. Press the button again to stop.", "Info", MB_OK);
                 break;
                 }
 
@@ -431,7 +485,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 PostQuitMessage(0);
                 break;
             }
-            break;
+
+            default:
+                break;
         }
         break;
     }
@@ -445,10 +501,16 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 threads[i].join();
         }
 
+
+
         PostQuitMessage(0);
         return 0;
         }
+
+    default:
+        break;
     }
+
     return DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
 
@@ -461,8 +523,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
         return 1;
     }
 
-    InitializeCriticalSection(&lastMessageLock);
-
     const char CLASS_NAME[] = "SceneSwitchWindow";
 
     WNDCLASS wc = {};
@@ -473,12 +533,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
 
     RegisterClass(&wc);
 
+    ethernet_addr = find_ethernet_address();
+    found_address = !ethernet_addr.empty();
+
     HWND hwnd = CreateWindowEx(
         0,
         CLASS_NAME,
         "UDP Network Capturer",
         WS_OVERLAPPEDWINDOW & ~(WS_THICKFRAME | WS_MAXIMIZEBOX),
-        CW_USEDEFAULT, CW_USEDEFAULT, 400, 350,
+        CW_USEDEFAULT, CW_USEDEFAULT, 400, 400,
         nullptr,
         nullptr,
         hInstance,
@@ -487,6 +550,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
 
     if (!hwnd)
         return 0;
+
+
+
 
     ShowScene1(TRUE);
     ShowScene2(FALSE);
@@ -501,8 +567,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
         DispatchMessage(&msg);
     }
 
-
-    DeleteCriticalSection(&lastMessageLock);
     WSACleanup();
 
     return 0;
