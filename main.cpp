@@ -13,6 +13,10 @@
 #define BUTTON1_ID 101
 #define BUTTON2_ID 102
 #define BUTTON3_ID 103
+#define INPUT1_ID 201
+#define INPUT2_ID 202
+#define INPUT3_ID 203
+#define INPUT4_ID 204
 
 // Scene 1 controls
 HWND hText1, hInput1;
@@ -40,7 +44,6 @@ std::wstring ethernet_addr, result;
 struct ListenerParams {
     const char* localIP;
     int localPort;
-
     const char* allowedSenderIP;
 };
 
@@ -358,22 +361,22 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         hText1 = CreateWindowW(L"EDIT", L"UDP Source IP:", WS_VISIBLE | WS_CHILD | ES_LEFT,
                                20, 10, 150, 20, hwnd, nullptr, nullptr, nullptr);
         hInput1 = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_LEFT,
-                                20, 40, 150, 20, hwnd, reinterpret_cast<HMENU>(201), nullptr, nullptr);
+                                20, 40, 150, 20, hwnd, reinterpret_cast<HMENU>(INPUT1_ID), nullptr, nullptr);
 
         hText2 = CreateWindowW(L"EDIT", L"UDP Destination IP:", WS_VISIBLE | WS_CHILD | ES_LEFT,
                                20, 70, 150, 20, hwnd, nullptr, nullptr, nullptr);
         hInput2 = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_LEFT,
-                                20, 100, 150, 20, hwnd, reinterpret_cast<HMENU>(202), nullptr, nullptr);
+                                20, 100, 150, 20, hwnd, reinterpret_cast<HMENU>(INPUT2_ID), nullptr, nullptr);
 
         hText3 = CreateWindowW(L"EDIT", L"UDP Port 1:", WS_VISIBLE | WS_CHILD | ES_LEFT,
                                20, 130, 150, 20, hwnd, nullptr, nullptr, nullptr);
         hInput3 = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_LEFT,
-                                20, 160, 150, 20, hwnd, reinterpret_cast<HMENU>(203), nullptr, nullptr);
+                                20, 160, 150, 20, hwnd, reinterpret_cast<HMENU>(INPUT3_ID), nullptr, nullptr);
 
         hText4 = CreateWindowW(L"EDIT", L"UDP Port 2", WS_VISIBLE | WS_CHILD | ES_LEFT,
                                20, 190, 150, 20, hwnd, nullptr, nullptr, nullptr);
         hInput4 = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_LEFT,
-                                20, 220, 150, 20, hwnd, reinterpret_cast<HMENU>(204), nullptr, nullptr);
+                                20, 220, 150, 20, hwnd, reinterpret_cast<HMENU>(INPUT4_ID), nullptr, nullptr);
 
         hButton1 = CreateWindowW(L"BUTTON", L"Test Connections", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
                                  20, 260, 150, 20, hwnd, reinterpret_cast<HMENU>(BUTTON1_ID), nullptr, nullptr);
@@ -421,10 +424,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 ShowScene3(FALSE);
 
                 // Read inputs on button press
-                GetWindowText(GetDlgItem(hwnd, 201), input_dst_ip, sizeof(input_dst_ip));
-                GetWindowText(GetDlgItem(hwnd, 202), input_src_ip, sizeof(input_src_ip));
-                GetWindowText(GetDlgItem(hwnd, 203), input_1, sizeof(input_1));
-                GetWindowText(GetDlgItem(hwnd, 204), input_2, sizeof(input_2));
+                GetWindowText(GetDlgItem(hwnd, INPUT1_ID), input_dst_ip, sizeof(input_dst_ip));
+                GetWindowText(GetDlgItem(hwnd, INPUT2_ID), input_src_ip, sizeof(input_src_ip));
+                GetWindowText(GetDlgItem(hwnd, INPUT3_ID), input_1, sizeof(input_1));
+                GetWindowText(GetDlgItem(hwnd, INPUT4_ID), input_2, sizeof(input_2));
 
                 input_dst_ip_str = std::string(input_dst_ip);
                 input_src_ip_str = std::string(input_src_ip);
