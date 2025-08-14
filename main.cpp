@@ -26,7 +26,7 @@ HWND hText4, hInput4;
 HWND ipText;
 HWND hButton1;
 
-// Scene 2 controls (all EDIT boxes instead of static)
+// Scene 2 controls
 HWND test_text_1, test_text_2, test_text_3, test_text_4;
 HWND hButton2;
 
@@ -357,23 +357,23 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     {
     case WM_CREATE:
     {
-        // Scene 1: Text labels as EDIT boxes, plus input boxes as EDIT boxes
-        hText1 = CreateWindowW(L"EDIT", L"UDP Source IP:", WS_VISIBLE | WS_CHILD | ES_LEFT,
+        // Scene 1: Text labels as STATIC boxes, plus input boxes as EDIT boxes
+        hText1 = CreateWindowW(L"STATIC", L"UDP Source IP:", WS_VISIBLE | WS_CHILD | ES_LEFT,
                                20, 10, 150, 20, hwnd, nullptr, nullptr, nullptr);
         hInput1 = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_LEFT,
                                 20, 40, 150, 20, hwnd, reinterpret_cast<HMENU>(INPUT1_ID), nullptr, nullptr);
 
-        hText2 = CreateWindowW(L"EDIT", L"UDP Destination IP:", WS_VISIBLE | WS_CHILD | ES_LEFT,
+        hText2 = CreateWindowW(L"STATIC", L"UDP Destination IP:", WS_VISIBLE | WS_CHILD | ES_LEFT,
                                20, 70, 150, 20, hwnd, nullptr, nullptr, nullptr);
         hInput2 = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_LEFT,
                                 20, 100, 150, 20, hwnd, reinterpret_cast<HMENU>(INPUT2_ID), nullptr, nullptr);
 
-        hText3 = CreateWindowW(L"EDIT", L"UDP Port 1:", WS_VISIBLE | WS_CHILD | ES_LEFT,
+        hText3 = CreateWindowW(L"STATIC", L"UDP Port 1:", WS_VISIBLE | WS_CHILD | ES_LEFT,
                                20, 130, 150, 20, hwnd, nullptr, nullptr, nullptr);
         hInput3 = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_LEFT,
                                 20, 160, 150, 20, hwnd, reinterpret_cast<HMENU>(INPUT3_ID), nullptr, nullptr);
 
-        hText4 = CreateWindowW(L"EDIT", L"UDP Port 2", WS_VISIBLE | WS_CHILD | ES_LEFT,
+        hText4 = CreateWindowW(L"STATIC", L"UDP Port 2", WS_VISIBLE | WS_CHILD | ES_LEFT,
                                20, 190, 150, 20, hwnd, nullptr, nullptr, nullptr);
         hInput4 = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_LEFT,
                                 20, 220, 150, 20, hwnd, reinterpret_cast<HMENU>(INPUT4_ID), nullptr, nullptr);
@@ -383,26 +383,26 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
         if (found_address) {
             std::wstring text = L"Possible Destination IP: " + ethernet_addr + L" (Ethernet IP)";
-            ipText = CreateWindowW(L"EDIT", text.c_str(),
+            ipText = CreateWindowW(L"STATIC", text.c_str(),
                                     WS_CHILD | ES_LEFT,
                                     20, 300, 350, 20, hwnd, nullptr, nullptr, nullptr);
         }
 
-        // Scene 2: all texts as EDIT boxes (no static)
-        test_text_1 = CreateWindowW(L"EDIT", L"Test port", WS_CHILD | ES_LEFT,
+        // Scene 2: all texts as static boxes
+        test_text_1 = CreateWindowW(L"STATIC", L"Test port", WS_CHILD | ES_LEFT,
                                     20, 20, 240, 20, hwnd, nullptr, nullptr, nullptr);
-        test_text_2 = CreateWindowW(L"EDIT", L"Test port", WS_CHILD | ES_LEFT,
+        test_text_2 = CreateWindowW(L"STATIC", L"Test port", WS_CHILD | ES_LEFT,
                                     20, 50, 240, 20, hwnd, nullptr, nullptr, nullptr);
-        test_text_3 = CreateWindowW(L"EDIT", L"Test port", WS_CHILD | ES_LEFT,
+        test_text_3 = CreateWindowW(L"STATIC", L"Test port", WS_CHILD | ES_LEFT,
                                     20, 80, 240, 20, hwnd, nullptr, nullptr, nullptr);
-        test_text_4 = CreateWindowW(L"EDIT", L"Test port", WS_CHILD | ES_LEFT,
+        test_text_4 = CreateWindowW(L"STATIC", L"Test port", WS_CHILD | ES_LEFT,
                                     20, 110, 240, 20, hwnd, nullptr, nullptr, nullptr);
 
         hButton2 = CreateWindowW(L"BUTTON", L"Start Capturing", WS_CHILD | BS_PUSHBUTTON,
                                  110, 150, 100, 30, hwnd, reinterpret_cast<HMENU>(BUTTON2_ID), nullptr, nullptr);
 
-        // Scene 3: text 8 as EDIT box and button
-        capturing_text = CreateWindowW(L"EDIT", L"Capturing UDP Packets", WS_CHILD | WS_BORDER | ES_LEFT,
+        // Scene 3: text 8 as static box and button
+        capturing_text = CreateWindowW(L"STATIC", L"Capturing UDP Packets", WS_CHILD | WS_BORDER | ES_LEFT,
                                        20, 50, 240, 20, hwnd, nullptr, nullptr, nullptr);
         hButton3 = CreateWindowW(L"BUTTON", L"Stop Capturing", WS_CHILD | BS_PUSHBUTTON,
                                  110, 100, 100, 30, hwnd, reinterpret_cast<HMENU>(BUTTON3_ID), nullptr, nullptr);
