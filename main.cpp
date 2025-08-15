@@ -187,7 +187,7 @@ bool testUdpCommunication(const char* localIP, int ports[], int portCount)
     // Create sockets for receiving test messages
     SOCKET recvSockets[4] = { INVALID_SOCKET, INVALID_SOCKET, INVALID_SOCKET, INVALID_SOCKET };
 
-    for (int i = 0; i < portCount; ++i) {
+    for (int i = 0; i < portCount; i++) {
         recvSockets[i] = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
         if (recvSockets[i] == INVALID_SOCKET) {
             change_test_text(localIP, i, ports,"Failed to create test recv socket.");
@@ -206,40 +206,8 @@ bool testUdpCommunication(const char* localIP, int ports[], int portCount)
         setsockopt(recvSockets[i], SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&optVal), sizeof(optVal));
 
         if (bind(recvSockets[i], reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == SOCKET_ERROR) {
-            change_test_text(localIP, i, ports,"Failed to bind test recv socket.");
+            change_test_text(localIP, i, ports,"Failed to bind test recv socket 2.");
             for (int j = 0; j <= i; ++j) closesocket(recvSockets[j]);
-            return false;
-        }
-    }
-
-    // Create a sending socket (can be shared for all sends)
-    SOCKET sendSock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (sendSock == INVALID_SOCKET) {
-        for (int i = 0; i < portCount; i++) {
-            change_test_text(localIP, i, ports,"Failed to create test send socket.");
-        }
-        for (int i = 0; i < portCount; ++i) closesocket(recvSockets[i]);
-        return false;
-    }
-
-    // Send test messages to each port
-    for (int i = 0; i < portCount; ++i) {
-        sockaddr_in destAddr{};
-        destAddr.sin_family = AF_INET;
-        destAddr.sin_addr.s_addr = inet_addr(localIP);
-
-        // BUNUN BÖYLE OLMAMASI LAZIM
-        destAddr.sin_port = htons(ports[i]);
-
-        const char* testMsg = "TEST_MESSAGE";
-
-        int sendResult = sendto(sendSock, testMsg, static_cast<int>(strlen(testMsg)), 0,
-                                reinterpret_cast<sockaddr*>(&destAddr), sizeof(destAddr));
-
-        if (sendResult == SOCKET_ERROR) {
-            change_test_text(localIP, i, ports,"Failed to send test message to port.");
-            closesocket(sendSock);
-            for (int j = 0; j < portCount; ++j) closesocket(recvSockets[j]);
             return false;
         }
     }
@@ -247,10 +215,10 @@ bool testUdpCommunication(const char* localIP, int ports[], int portCount)
     // Wait for test messages to be received on each socket (with timeout)
     fd_set readfds;
     timeval timeout{};
-    timeout.tv_sec = 2;   // 2 seconds timeout to receive each test message
+    timeout.tv_sec = 4;   // 2 seconds timeout to receive each test message
     timeout.tv_usec = 0;
 
-    char buffer[256];
+    char buffer[1600];
     bool received[4] = { false, false, false, false };
 
     int remaining = portCount;
@@ -258,7 +226,7 @@ bool testUdpCommunication(const char* localIP, int ports[], int portCount)
     while (remaining > 0) {
         FD_ZERO(&readfds);
         int maxSock = 0;
-        for (int i = 0; i < portCount; ++i) {
+        for (int i = 0; i < portCount; i++) {
             if (!received[i]) {
                 FD_SET(recvSockets[i], &readfds);
                 if (recvSockets[i] > maxSock) maxSock = recvSockets[i];
@@ -268,35 +236,35 @@ bool testUdpCommunication(const char* localIP, int ports[], int portCount)
         int selectRes = select(maxSock + 1, &readfds, nullptr, nullptr, &timeout);
         if (selectRes == 0) {
             // timeout
+            // change_test_text(localIP, i, ports,"FD_ISSET");
             break;
         }
         if (selectRes == SOCKET_ERROR) {
-            for (int i = 0; i < portCount; ++i) {
+            for (int i = 0; i < portCount; i++) {
                 change_test_text(localIP, i, ports,"select() failed during test.");
             }
             break;
         }
 
-        for (int i = 0; i < portCount; ++i) {
+        for (int i = 0; i < portCount; i++) {
             if (!received[i] && FD_ISSET(recvSockets[i], &readfds)) {
                 sockaddr_in fromAddr{};
                 int fromLen = sizeof(fromAddr);
                 int recvLen = recvfrom(recvSockets[i], buffer, sizeof(buffer) - 1, 0,
                                        reinterpret_cast<sockaddr*>(&fromAddr), &fromLen);
                 if (recvLen > 0) {
-                    buffer[recvLen] = '\0';
-                    if (strcmp(buffer, "TEST_MESSAGE") == 0) {
-                        received[i] = true;
-                        change_test_text(localIP, i, ports,"Tests successful.");
-                        remaining--;
-                    }
+                    received[i] = true;
+                    change_test_text(localIP, i, ports,"Tests successful.");
+                    remaining--;
+                } else {
+                    change_test_text(localIP, i, ports,"RecvLen < 0.");
+                    remaining--;
                 }
             }
         }
     }
 
     // Close all test sockets
-    closesocket(sendSock);
     for (int i = 0; i < portCount; ++i) closesocket(recvSockets[i]);
 
     // Return true only if all received
@@ -464,8 +432,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             case BUTTON1_ID: {
 
                 // Read inputs on button press
-                GetWindowText(GetDlgItem(hwnd, INPUT1_ID), input_dst_ip, sizeof(input_dst_ip));
-                GetWindowText(GetDlgItem(hwnd, INPUT2_ID), input_src_ip, sizeof(input_src_ip));
+                GetWindowText(GetDlgItem(hwnd, INPUT1_ID), input_src_ip, sizeof(input_src_ip));
+                GetWindowText(GetDlgItem(hwnd, INPUT2_ID), input_dst_ip, sizeof(input_dst_ip));
                 GetWindowText(GetDlgItem(hwnd, INPUT3_ID), input_1, sizeof(input_1));
                 GetWindowText(GetDlgItem(hwnd, INPUT4_ID), input_2, sizeof(input_2));
 
@@ -490,14 +458,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 ShowScene3(FALSE);
 
                 testPorts[0] = input_port_1;
-                testPorts[1] = input_port_2;
-                testPorts[2] = input_port_1 + 1;
+                testPorts[1] = input_port_1 + 1;
+                testPorts[2] = input_port_2;
                 testPorts[3] = input_port_2 + 1;
 
                 // Run the test first
-                // Burada testimin sonuçlarını göstermem lazım [test_text_1, hTex7] ile
-
-                tests_passed = false;
+                tests_passed = false; // !!!!!!!!!!!! must be false
                 tests_passed = testUdpCommunication(input_dst_ip, testPorts, 4);
                 if (!tests_passed) {
                     SetWindowText(hButton2, "Go Back");
@@ -540,10 +506,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     SetWindowTextW(info_text, full_info_text.c_str());
 
                     // Initialize listeners with user input
-                    listeners[0] = { input_src_ip, (input_port_1), input_dst_ip};
-                    listeners[1] = { input_src_ip, (input_port_1 + 1), input_dst_ip};
-                    listeners[2] = { input_src_ip, (input_port_2), input_dst_ip};
-                    listeners[3] = { input_src_ip, (input_port_2 + 1), input_dst_ip};
+                    listeners[0] = { input_dst_ip, (input_port_1), input_src_ip};
+                    listeners[1] = { input_dst_ip, (input_port_1 + 1), input_src_ip};
+                    listeners[2] = { input_dst_ip, (input_port_2), input_src_ip};
+                    listeners[3] = { input_dst_ip, (input_port_2 + 1), input_src_ip};
 
                     running = true;
 
