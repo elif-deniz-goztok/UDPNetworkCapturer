@@ -12,8 +12,8 @@
 
 #define BUTTON1_ID 101
 #define BUTTON2_ID 102
-#define BUTTON4_ID 104
 #define BUTTON3_ID 103
+#define BUTTON4_ID 104
 #define INPUT1_ID 201
 #define INPUT2_ID 202
 #define INPUT3_ID 203
@@ -25,7 +25,7 @@ HWND hText2, hInput2;
 HWND hText3, hInput3;
 HWND hText4, hInput4;
 HWND ipText;
-HWND hButton1;
+HWND hButtonTest;
 
 // Scene 2 controls
 HWND test_text_1, test_text_2, test_text_3, test_text_4;
@@ -35,7 +35,7 @@ HWND hButton2;
 // Scene 3 controls
 HWND info_text;
 HWND capturing_text;
-HWND hButton3;
+HWND hButtonStop;
 
 // Shared variables
 std::atomic<bool> running(false); // Start as false, start listeners only on button
@@ -67,7 +67,7 @@ void ShowScene1(BOOL show)
     ShowWindow(hInput3, show);
     ShowWindow(hText4, show);
     ShowWindow(hInput4, show);
-    ShowWindow(hButton1, show);
+    ShowWindow(hButtonTest, show);
     if (found_address) {
         ShowWindow(ipText, show);
     }
@@ -89,7 +89,7 @@ void ShowScene3(BOOL show)
 {
     ShowWindow(info_text, show);
     ShowWindow(capturing_text, show);
-    ShowWindow(hButton3, show);
+    ShowWindow(hButtonStop, show);
 }
 
 std::wstring find_ethernet_address() {
@@ -298,15 +298,8 @@ void udpListener(ListenerParams params)
     BOOL optVal = TRUE;
     setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&optVal), sizeof(optVal));
 
-    // src ip ++
-    // src port --
-    // dest ip ++
-    // dest port ++
-
     if (bind(sock, reinterpret_cast<sockaddr*>(&serverAddr), sizeof(serverAddr)) == SOCKET_ERROR) {
         char errMsg[128];
-
-        // change_test_text(0, [params.localPort], "Bind failed on port".c_str());
         sprintf_s(errMsg, "Bind failed on port %d", params.localPort);
         MessageBox(nullptr, errMsg, "Error", MB_OK | MB_ICONERROR);
         closesocket(sock);
@@ -351,11 +344,8 @@ void udpListener(ListenerParams params)
 
             std::string senderIP = inet_ntoa(clientAddr.sin_addr);
 
-            std::cout << params.localPort << "\n";
-
             if (senderIP == params.allowedSenderIP) {
                 MyFile.write(buffer, recvLen);
-                    // std::cout << params.localPort << "\n";
                     MyFile.flush();
             }
         }
@@ -392,7 +382,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         hInput4 = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_LEFT,
                                 20, 220, 150, 20, hwnd, reinterpret_cast<HMENU>(INPUT4_ID), nullptr, nullptr);
 
-        hButton1 = CreateWindowW(L"BUTTON", L"Test Connections", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
+        hButtonTest = CreateWindowW(L"BUTTON", L"Test Connections", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
                                  20, 260, 150, 20, hwnd, reinterpret_cast<HMENU>(BUTTON1_ID), nullptr, nullptr);
 
         if (found_address) {
@@ -416,7 +406,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                                  175, 220, 100, 30, hwnd, reinterpret_cast<HMENU>(BUTTON2_ID), nullptr, nullptr);
 
         hButtonStartAnyway = CreateWindowW(L"BUTTON", L"Start Capturing Anyway", WS_CHILD | BS_PUSHBUTTON,
-                         125, 260, 200, 30, hwnd, reinterpret_cast<HMENU>(BUTTON4_ID), nullptr, nullptr);
+                         125, 260, 200, 30, hwnd, reinterpret_cast<HMENU>(BUTTON3_ID), nullptr, nullptr);
 
         // Scene 3: text 8 as static box and button
         capturing_text = CreateWindowW(L"STATIC", L"Capturing UDP Packets...", WS_CHILD | ES_LEFT,
@@ -425,8 +415,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         info_text = CreateWindowW(L"STATIC", full_info_text.c_str(), WS_CHILD | ES_LEFT,
                                        20, 80, 400, 60, hwnd, nullptr, nullptr, nullptr);
 
-        hButton3 = CreateWindowW(L"BUTTON", L"Stop Capturing", WS_CHILD | BS_PUSHBUTTON,
-                                 175, 200, 100, 30, hwnd, reinterpret_cast<HMENU>(BUTTON3_ID), nullptr, nullptr);
+        hButtonStop = CreateWindowW(L"BUTTON", L"Stop Capturing", WS_CHILD | BS_PUSHBUTTON,
+                                 175, 200, 100, 30, hwnd, reinterpret_cast<HMENU>(BUTTON4_ID), nullptr, nullptr);
 
         // Show only scene 1 at start
         ShowScene1(TRUE);
@@ -533,11 +523,40 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
             }
 
-            case BUTTON4_ID: {
-                // Test failed but try and record still.
+            case BUTTON3_ID: {
+                // At least one test failed but try and record all ports still.
+                ShowScene1(FALSE);
+                ShowScene2(FALSE);
+                ShowScene3(TRUE);
+
+                full_info_text = (
+                    L"UDP Source IP: " + std::wstring(input_src_ip_str.begin(), input_src_ip_str.end()) +
+                    L"\nUDP Destination IP: " + std::wstring(input_dst_ip_str.begin(), input_dst_ip_str.end()) +
+                    L"\nUDP Destination Ports: " +
+                    std::to_wstring(input_port_1) + L", " +
+                    std::to_wstring(input_port_1 + 1) + L", " +
+                    std::to_wstring(input_port_2) + L", " +
+                    std::to_wstring(input_port_2 + 1));
+
+                SetWindowTextW(info_text, full_info_text.c_str());
+
+                // Initialize listeners with user input
+                listeners[0] = { input_dst_ip, (input_port_1), input_src_ip};
+                listeners[1] = { input_dst_ip, (input_port_1 + 1), input_src_ip};
+                listeners[2] = { input_dst_ip, (input_port_2), input_src_ip};
+                listeners[3] = { input_dst_ip, (input_port_2 + 1), input_src_ip};
+
+                running = true;
+
+                // Start listener threads
+                for (int i = 0; i < 4; i++) {
+                    threads[i] = std::thread(udpListener, listeners[i]);
+                }
+                listenersStarted = true;
+                break;
             }
 
-            case BUTTON3_ID: {
+            case BUTTON4_ID: {
                 // Stop listeners on second button press
                 running = false;
 
