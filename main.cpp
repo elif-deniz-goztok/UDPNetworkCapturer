@@ -12,6 +12,7 @@
 
 #define BUTTON1_ID 101
 #define BUTTON2_ID 102
+#define BUTTON4_ID 104
 #define BUTTON3_ID 103
 #define INPUT1_ID 201
 #define INPUT2_ID 202
@@ -28,6 +29,7 @@ HWND hButton1;
 
 // Scene 2 controls
 HWND test_text_1, test_text_2, test_text_3, test_text_4;
+HWND hButtonStartAnyway;
 HWND hButton2;
 
 // Scene 3 controls
@@ -78,6 +80,9 @@ void ShowScene2(BOOL show)
     ShowWindow(test_text_3, show);
     ShowWindow(test_text_4, show);
     ShowWindow(hButton2, show);
+    if (!tests_passed) {
+        ShowWindow(hButtonStartAnyway, show);
+    }
 }
 
 void ShowScene3(BOOL show)
@@ -215,7 +220,7 @@ bool testUdpCommunication(const char* localIP, int ports[], int portCount)
     // Wait for test messages to be received on each socket (with timeout)
     fd_set readfds;
     timeval timeout{};
-    timeout.tv_sec = 4;   // 2 seconds timeout to receive each test message
+    timeout.tv_sec = 2;   // 2 seconds timeout to receive each test message
     timeout.tv_usec = 0;
 
     char buffer[1600];
@@ -236,7 +241,9 @@ bool testUdpCommunication(const char* localIP, int ports[], int portCount)
         int selectRes = select(maxSock + 1, &readfds, nullptr, nullptr, &timeout);
         if (selectRes == 0) {
             // timeout
-            // change_test_text(localIP, i, ports,"FD_ISSET");
+            for (int i = 0; i < portCount; i++) {
+                change_test_text(localIP, i, ports,"Failed with timeout.");
+            }
             break;
         }
         if (selectRes == SOCKET_ERROR) {
@@ -408,6 +415,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         hButton2 = CreateWindowW(L"BUTTON", L"Start Capturing", WS_CHILD | BS_PUSHBUTTON,
                                  175, 220, 100, 30, hwnd, reinterpret_cast<HMENU>(BUTTON2_ID), nullptr, nullptr);
 
+        hButtonStartAnyway = CreateWindowW(L"BUTTON", L"Start Capturing Anyway", WS_CHILD | BS_PUSHBUTTON,
+                         125, 260, 200, 30, hwnd, reinterpret_cast<HMENU>(BUTTON4_ID), nullptr, nullptr);
+
         // Scene 3: text 8 as static box and button
         capturing_text = CreateWindowW(L"STATIC", L"Capturing UDP Packets...", WS_CHILD | ES_LEFT,
                                        20, 50, 400, 20, hwnd, nullptr, nullptr, nullptr);
@@ -425,7 +435,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
         break;
     }
-
 
     case WM_COMMAND:{
         switch (LOWORD(wParam)) {
@@ -522,6 +531,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 }
 
 
+            }
+
+            case BUTTON4_ID: {
+                // Test failed but try and record still.
             }
 
             case BUTTON3_ID: {
