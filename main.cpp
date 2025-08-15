@@ -134,22 +134,11 @@ bool input_values_pass_tests() {
     if (input_src_ip_str.empty() || input_dst_ip_str.empty()
         || input_src_ip_str.find('-') != std::string::npos
         || input_src_ip_str.find('-') != std::string::npos
-
-        // or maybe doing this instead for better readability?
-        /*
-        || input_src_ip_str.find('-')'s type != int
-        || input_src_ip_str.find('-')'s type != int
-         */
-
         || input_src_ip_str == "0.0.0.0" || input_dst_ip_str == "0.0.0.0"
         || input_port_1 > 65535 || input_port_2 > 65535
         || input_port_1 <= 0 || input_port_2 <= 0
-        // || (input_port_1 == input_port_2)
-
         || (inet_pton(AF_INET, input_src_ip, &addr1) != 1)
         || (inet_pton(AF_INET, input_dst_ip, &addr2) != 1)
-        // idk how to implement this "|| inet_pton(AF_INET, input_dst_ip) <= 0" without creating an s_addrin object
-
         ) {
             return false;
         }
@@ -440,16 +429,16 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
         // Scene 2: all texts as static boxes
         test_text_1 = CreateWindowW(L"STATIC", L"Test port", WS_CHILD | ES_LEFT,
-                                    20, 20, 240, 20, hwnd, nullptr, nullptr, nullptr);
+                                    20, 20, 300, 40, hwnd, nullptr, nullptr, nullptr);
         test_text_2 = CreateWindowW(L"STATIC", L"Test port", WS_CHILD | ES_LEFT,
-                                    20, 50, 240, 20, hwnd, nullptr, nullptr, nullptr);
+                                    20, 70, 300, 40, hwnd, nullptr, nullptr, nullptr);
         test_text_3 = CreateWindowW(L"STATIC", L"Test port", WS_CHILD | ES_LEFT,
-                                    20, 80, 240, 20, hwnd, nullptr, nullptr, nullptr);
+                                    20, 120, 300, 40, hwnd, nullptr, nullptr, nullptr);
         test_text_4 = CreateWindowW(L"STATIC", L"Test port", WS_CHILD | ES_LEFT,
-                                    20, 110, 240, 20, hwnd, nullptr, nullptr, nullptr);
+                                    20, 170, 300, 40, hwnd, nullptr, nullptr, nullptr);
 
         hButton2 = CreateWindowW(L"BUTTON", L"Start Capturing", WS_CHILD | BS_PUSHBUTTON,
-                                 175, 200, 100, 30, hwnd, reinterpret_cast<HMENU>(BUTTON2_ID), nullptr, nullptr);
+                                 175, 220, 100, 30, hwnd, reinterpret_cast<HMENU>(BUTTON2_ID), nullptr, nullptr);
 
         // Scene 3: text 8 as static box and button
         capturing_text = CreateWindowW(L"STATIC", L"Capturing UDP Packets...", WS_CHILD | ES_LEFT,
