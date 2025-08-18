@@ -41,7 +41,7 @@ HWND hButtonStop;
 std::atomic<bool> running(false); // Start as false, start listeners only on button
 char input_dst_ip[256], input_src_ip[256], input_1[256], input_2[256];
 int input_port_1, input_port_2;
-bool tests_passed;
+bool tests_passed = true;
 int testPorts[4];
 std::string input_dst_ip_str, input_src_ip_str;
 std::wstring ethernet_addr, result, full_info_text;
@@ -50,6 +50,7 @@ struct ListenerParams {
     const char* localIP;
     int localPort;
     const char* allowedSenderIP;
+    bool started_recording;
 };
 
 std::thread threads[4];
@@ -88,6 +89,12 @@ void ShowScene2(BOOL show)
 void ShowScene3(BOOL show)
 {
     ShowWindow(info_text, show);
+    /*
+    ShowWindow(test_text_1, show);
+    ShowWindow(test_text_2, show);
+    ShowWindow(test_text_3, show);
+    ShowWindow(test_text_4, show);
+    */
     ShowWindow(capturing_text, show);
     ShowWindow(hButtonStop, show);
 }
@@ -184,6 +191,7 @@ bool testUdpCommunication(const char* localIP, int ports[], int portCount)
             if ((i != j) && (ports[i] == ports[j])) {
                 change_test_text(localIP, i, ports,"Ports crashed.");
                 change_test_text(localIP, j, ports,"Ports crashed.");
+                // OutputDebugStringA("Ports crashed!\n");
                 return false;
             }
         }
@@ -196,6 +204,7 @@ bool testUdpCommunication(const char* localIP, int ports[], int portCount)
         recvSockets[i] = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
         if (recvSockets[i] == INVALID_SOCKET) {
             change_test_text(localIP, i, ports,"Failed to create test recv socket.");
+            // OutputDebugStringA("Failed to create test recv socket.\n");
 
             // Cleanup created sockets
             for (int j = 0; j < i; ++j) closesocket(recvSockets[j]);
@@ -212,6 +221,7 @@ bool testUdpCommunication(const char* localIP, int ports[], int portCount)
 
         if (bind(recvSockets[i], reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == SOCKET_ERROR) {
             change_test_text(localIP, i, ports,"Failed to bind test recv socket 2.");
+            // OutputDebugStringA("Failed to bind test recv socket 2.\n");
             for (int j = 0; j <= i; ++j) closesocket(recvSockets[j]);
             return false;
         }
@@ -281,61 +291,64 @@ bool testUdpCommunication(const char* localIP, int ports[], int portCount)
     return true;
 }
 
-void udpListener(ListenerParams params)
+void udpListener(ListenerParams params, HWND hwnd)
 {
-    SOCKET sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (sock == INVALID_SOCKET) {
-        MessageBox(nullptr, "Socket creation failed", "Error", MB_OK | MB_ICONERROR);
-        running = false;
-        return;
-    }
-
-    sockaddr_in serverAddr{};
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_addr.s_addr = inet_addr(params.localIP);
-    serverAddr.sin_port = htons(params.localPort);
-
-    BOOL optVal = TRUE;
-    setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&optVal), sizeof(optVal));
-
-    if (bind(sock, reinterpret_cast<sockaddr*>(&serverAddr), sizeof(serverAddr)) == SOCKET_ERROR) {
-        char errMsg[128];
-        sprintf_s(errMsg, "Bind failed on port %d", params.localPort);
-        MessageBox(nullptr, errMsg, "Error", MB_OK | MB_ICONERROR);
-        closesocket(sock);
-        running = false;
-        return;
-    }
-
+    SOCKET sock = INVALID_SOCKET;
+    std::ofstream MyFile;
     char buffer[1600];
     sockaddr_in clientAddr{};
     int clientAddrLen = sizeof(clientAddr);
 
-    char fileName[64];
-    sprintf_s(fileName, "%s_%d.bin", params.localIP,params.localPort);
-    std::ofstream MyFile(fileName, std::ios::binary);
+    // Keep trying until we can start recording
+    while (!params.started_recording && running) {
+        sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+        if (sock == INVALID_SOCKET) {
+            // OutputDebugStringA("Bind failed!\n");
+            continue;
+        }
 
-    if (!MyFile.is_open()) {
-        char err[128];
-        sprintf_s(err, "Failed to open file for port %d", params.localPort);
-        MessageBox(nullptr, err, "Error", MB_OK | MB_ICONERROR);
-        running = false;
-        return;
+        sockaddr_in serverAddr{};
+        serverAddr.sin_family = AF_INET;
+        serverAddr.sin_addr.s_addr = inet_addr(params.localIP);
+        serverAddr.sin_port = htons(params.localPort);
+
+        BOOL optVal = TRUE;
+        setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&optVal), sizeof(optVal));
+
+        if (bind(sock, reinterpret_cast<sockaddr*>(&serverAddr), sizeof(serverAddr)) == SOCKET_ERROR) {
+            closesocket(sock);
+            // OutputDebugStringA("Bind failed!\n");
+            continue;  // Retry
+        }
+
+        // Open file
+        char fileName[64];
+        sprintf_s(fileName, "%s_%d.bin", params.localIP, params.localPort);
+        MyFile.open(fileName, std::ios::binary);
+        if (!MyFile.is_open()) {
+            closesocket(sock);
+            // OutputDebugStringA("Bind failed!\n");
+            continue;  // Retry
+        }
+
+        params.started_recording = true;  // Success! start recording
+        // OutputDebugStringA("Starting the record.\n");
     }
 
-    while (running) {
+    // Recording loop
+    while (running && params.started_recording) {
         fd_set readfds;
         FD_ZERO(&readfds);
         FD_SET(sock, &readfds);
 
         timeval timeout{};
-        timeout.tv_sec = 0;
-        timeout.tv_usec = 500000; // 0.5 seconds
+        timeout.tv_sec = 1;  // check running every second
+        timeout.tv_usec = 0;
 
         int selectResult = select(0, &readfds, nullptr, nullptr, &timeout);
         if (selectResult > 0 && FD_ISSET(sock, &readfds)) {
-            int recvLen = recvfrom(sock, buffer, sizeof(buffer) - 1, 0,
-                                   reinterpret_cast<struct sockaddr*>(&clientAddr), &clientAddrLen);
+            int recvLen = recvfrom(sock, buffer, sizeof(buffer), 0,
+                                   reinterpret_cast<sockaddr*>(&clientAddr), &clientAddrLen);
 
             if (recvLen == SOCKET_ERROR) {
                 std::cout << "recvfrom failed" << std::endl;
@@ -343,16 +356,16 @@ void udpListener(ListenerParams params)
             }
 
             std::string senderIP = inet_ntoa(clientAddr.sin_addr);
-
             if (senderIP == params.allowedSenderIP) {
+
                 MyFile.write(buffer, recvLen);
-                    MyFile.flush();
+                MyFile.flush();
             }
         }
     }
 
-    closesocket(sock);
-    MyFile.close();
+    if (sock != INVALID_SOCKET) closesocket(sock);
+    if (MyFile.is_open()) MyFile.close();
 }
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
@@ -411,7 +424,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         // Scene 3: text 8 as static box and button
         capturing_text = CreateWindowW(L"STATIC", L"Capturing UDP Packets...", WS_CHILD | ES_LEFT,
                                        20, 50, 400, 20, hwnd, nullptr, nullptr, nullptr);
-        
+
         info_text = CreateWindowW(L"STATIC", full_info_text.c_str(), WS_CHILD | ES_LEFT,
                                        20, 80, 400, 60, hwnd, nullptr, nullptr, nullptr);
 
@@ -441,14 +454,15 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 input_port_1 = atoi(input_1);
                 input_port_2 = atoi(input_2);
 
+                // OutputDebugStringA("First try.\n");
 
                 if (!input_values_pass_tests()){
-                    MessageBox(hwnd, "Please enter valid IP and ports.", "Error", MB_OK | MB_ICONERROR);
 
                     ShowScene1(TRUE);
                     ShowScene2(FALSE);
                     ShowScene3(FALSE);
 
+                    MessageBox(hwnd, "Please enter valid IP and ports.", "Error", MB_OK | MB_ICONERROR);
                     break;
                 }
 
@@ -462,7 +476,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 testPorts[3] = input_port_2 + 1;
 
                 // Run the test first
-                tests_passed = false; // !!!!!!!!!!!! must be false
+                tests_passed = false;
                 tests_passed = testUdpCommunication(input_dst_ip, testPorts, 4);
                 if (!tests_passed) {
                     SetWindowText(hButton2, "Go Back");
@@ -476,50 +490,42 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
             case BUTTON2_ID:
                 {
-
                 if (!tests_passed) {
-
-                    for (int port = 0; port < 4; port++) {
-                        change_test_text("", port, testPorts,"Ports crashed.");
-                    }
-
                     ShowScene1(TRUE);
                     ShowScene2(FALSE);
                     ShowScene3(FALSE);
                     break;
-
-                } else {
-                    ShowScene1(FALSE);
-                    ShowScene2(FALSE);
-                    ShowScene3(TRUE);
-
-                    full_info_text = (
-                        L"UDP Source IP: " + std::wstring(input_src_ip_str.begin(), input_src_ip_str.end()) +
-                        L"\nUDP Destination IP: " + std::wstring(input_dst_ip_str.begin(), input_dst_ip_str.end()) +
-                        L"\nUDP Destination Ports: " +
-                        std::to_wstring(input_port_1) + L", " +
-                        std::to_wstring(input_port_1 + 1) + L", " +
-                        std::to_wstring(input_port_2) + L", " +
-                        std::to_wstring(input_port_2 + 1));
-
-                    SetWindowTextW(info_text, full_info_text.c_str());
-
-                    // Initialize listeners with user input
-                    listeners[0] = { input_dst_ip, (input_port_1), input_src_ip};
-                    listeners[1] = { input_dst_ip, (input_port_1 + 1), input_src_ip};
-                    listeners[2] = { input_dst_ip, (input_port_2), input_src_ip};
-                    listeners[3] = { input_dst_ip, (input_port_2 + 1), input_src_ip};
-
-                    running = true;
-
-                    // Start listener threads
-                    for (int i = 0; i < 4; i++) {
-                        threads[i] = std::thread(udpListener, listeners[i]);
-                    }
-                    listenersStarted = true;
-                    break;
                 }
 
+                ShowScene1(FALSE);
+                ShowScene2(FALSE);
+                ShowScene3(TRUE);
+
+                full_info_text = (
+                    L"UDP Source IP: " + std::wstring(input_src_ip_str.begin(), input_src_ip_str.end()) +
+                    L"\nUDP Destination IP: " + std::wstring(input_dst_ip_str.begin(), input_dst_ip_str.end()) +
+                    L"\nUDP Destination Ports: " +
+                    std::to_wstring(input_port_1) + L", " +
+                    std::to_wstring(input_port_1 + 1) + L", " +
+                    std::to_wstring(input_port_2) + L", " +
+                    std::to_wstring(input_port_2 + 1));
+
+                SetWindowTextW(info_text, full_info_text.c_str());
+
+                // Initialize listeners with user input
+                listeners[0] = { input_dst_ip, (input_port_1), input_src_ip,false};
+                listeners[1] = { input_dst_ip, (input_port_1 + 1), input_src_ip,false};
+                listeners[2] = { input_dst_ip, (input_port_2), input_src_ip,false};
+                listeners[3] = { input_dst_ip, (input_port_2 + 1), input_src_ip,false};
+
+                running = true;
+
+                // Start listener threads
+                for (int i = 0; i < 4; i++) {
+                    threads[i] = std::thread(udpListener, listeners[i], hwnd);
+                }
+                listenersStarted = true;
+                break;
 
             }
 
@@ -541,16 +547,16 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 SetWindowTextW(info_text, full_info_text.c_str());
 
                 // Initialize listeners with user input
-                listeners[0] = { input_dst_ip, (input_port_1), input_src_ip};
-                listeners[1] = { input_dst_ip, (input_port_1 + 1), input_src_ip};
-                listeners[2] = { input_dst_ip, (input_port_2), input_src_ip};
-                listeners[3] = { input_dst_ip, (input_port_2 + 1), input_src_ip};
+                listeners[0] = { input_dst_ip, (input_port_1), input_src_ip, false};
+                listeners[1] = { input_dst_ip, (input_port_1 + 1), input_src_ip,false};
+                listeners[2] = { input_dst_ip, (input_port_2), input_src_ip,false};
+                listeners[3] = { input_dst_ip, (input_port_2 + 1), input_src_ip,false};
 
                 running = true;
 
                 // Start listener threads
                 for (int i = 0; i < 4; i++) {
-                    threads[i] = std::thread(udpListener, listeners[i]);
+                    threads[i] = std::thread(udpListener, listeners[i], hwnd);
                 }
                 listenersStarted = true;
                 break;
