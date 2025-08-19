@@ -7,6 +7,7 @@
 #include <string>
 #include <iphlpapi.h>
 #include <ws2tcpip.h>
+#include <shobjidl.h> // for IFileDialog
 #pragma comment(lib, "iphlpapi.lib")
 #pragma comment(lib, "ws2_32.lib")
 
@@ -18,12 +19,14 @@
 #define INPUT2_ID 202
 #define INPUT3_ID 203
 #define INPUT4_ID 204
+#define INPUT5_ID 205
 
 // Scene 1 controls
 HWND hText1, hInput1;
 HWND hText2, hInput2;
 HWND hText3, hInput3;
 HWND hText4, hInput4;
+HWND hText5, hInput5;
 HWND ipText;
 HWND hButtonTest;
 
@@ -39,18 +42,23 @@ HWND hButtonStop;
 
 // Shared variables
 std::atomic<bool> running(false); // Start as false, start listeners only on button
-char input_dst_ip[256], input_src_ip[256], input_1[256], input_2[256];
-int input_port_1, input_port_2;
+char input_dst_ip[256], input_src_ip[256], input_1[256], input_2[256], inputTGSNodeID[256];
+int input_port_1, input_port_2, testPorts[4];
 bool tests_passed = true;
-int testPorts[4];
 std::string input_dst_ip_str, input_src_ip_str;
-std::wstring ethernet_addr, result, full_info_text;
+std::wstring ethernet_addr, result, full_info_text, TGSNodeID, chosenOutputDirectory;
+SYSTEMTIME sys_time;
 
 struct ListenerParams {
-    const char* localIP;
-    int localPort;
-    const char* allowedSenderIP;
-    bool started_recording;
+    const char* localIP = nullptr;
+    int localPort = -1;
+    const char* allowedSenderIP = nullptr;
+    bool started_recording = false;
+    std::wstring fileName;
+
+    ListenerParams() = default;
+    ListenerParams(const char* ip, int port, const char* allowedIP, bool recording, const std::wstring& fName)
+        : localIP(ip), localPort(port), allowedSenderIP(allowedIP), started_recording(recording), fileName(fName) {}
 };
 
 std::thread threads[4];
@@ -68,6 +76,8 @@ void ShowScene1(BOOL show)
     ShowWindow(hInput3, show);
     ShowWindow(hText4, show);
     ShowWindow(hInput4, show);
+    ShowWindow(hText5, show);
+    ShowWindow(hInput5, show);
     ShowWindow(hButtonTest, show);
     if (found_address) {
         ShowWindow(ipText, show);
@@ -101,19 +111,17 @@ void ShowScene3(BOOL show)
 
 std::wstring find_ethernet_address() {
     ULONG outBufLen = 15000;
-    auto adapterAddresses = reinterpret_cast<PIP_ADAPTER_ADDRESSES>(malloc(outBufLen));
+    auto adapterAddresses = static_cast<PIP_ADAPTER_ADDRESSES>(malloc(outBufLen));
     if (!adapterAddresses) return L"";
 
     ULONG retVal = GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_PREFIX, nullptr, adapterAddresses, &outBufLen);
     if (retVal == ERROR_BUFFER_OVERFLOW) {
         free(adapterAddresses);
-        adapterAddresses = reinterpret_cast<PIP_ADAPTER_ADDRESSES>(malloc(outBufLen));
+        adapterAddresses = static_cast<PIP_ADAPTER_ADDRESSES>(malloc(outBufLen));
         if (!adapterAddresses) return L"";
         retVal = GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_PREFIX, nullptr, adapterAddresses, &outBufLen);
         // free(adapterAddresses);
     }
-
-
 
     if (retVal == NO_ERROR) {
         for (PIP_ADAPTER_ADDRESSES adapter = adapterAddresses; adapter; adapter = adapter->Next) {
@@ -139,6 +147,42 @@ std::wstring find_ethernet_address() {
     return result; // Empty if not found
 }
 
+std::wstring ChooseOutputFolder(HWND hwnd) {
+    IFileDialog* pfd = nullptr;
+    std::wstring folderPath;
+
+    HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    if (FAILED(hr)) return L"";
+
+    // Create dialog
+    hr = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_ALL,
+                          IID_IFileDialog, reinterpret_cast<void**>(&pfd));
+    if (SUCCEEDED(hr)) {
+        DWORD dwOptions;
+        pfd->GetOptions(&dwOptions);
+        pfd->SetOptions(dwOptions | FOS_PICKFOLDERS); // folder picker mode
+        pfd->SetTitle(L"Select folder for recording files:");
+
+        hr = pfd->Show(hwnd);
+        if (SUCCEEDED(hr)) {
+            IShellItem* pItem;
+            hr = pfd->GetResult(&pItem);
+            if (SUCCEEDED(hr)) {
+                PWSTR pszFilePath = nullptr;
+                hr = pItem->GetDisplayName(SIGDN_FILESYSPATH, &pszFilePath);
+                if (SUCCEEDED(hr)) {
+                    folderPath = pszFilePath;
+                    CoTaskMemFree(pszFilePath);
+                }
+                pItem->Release();
+            }
+        }
+        pfd->Release();
+    }
+    CoUninitialize();
+    return folderPath;
+}
+
 bool input_values_pass_tests() {
     in_addr addr1{};
     in_addr addr2{};
@@ -151,6 +195,7 @@ bool input_values_pass_tests() {
         || input_port_1 <= 0 || input_port_2 <= 0
         || (inet_pton(AF_INET, input_src_ip, &addr1) != 1)
         || (inet_pton(AF_INET, input_dst_ip, &addr2) != 1)
+        || strlen(inputTGSNodeID) == 0
         ) {
             return false;
         }
@@ -321,10 +366,18 @@ void udpListener(ListenerParams params, HWND hwnd)
             continue;  // Retry
         }
 
-        // Open file
-        char fileName[64];
-        sprintf_s(fileName, "%s_%d.bin", params.localIP, params.localPort);
-        MyFile.open(fileName, std::ios::binary);
+        // example params.fileName = "ST1_MetaData"
+        // example fullFileName = "ST1_MetaData_TGSNodeID_YearMonthDay_HourMinut.bin"
+        std::wstring fullFileName = (chosenOutputDirectory + L"\\" + params.fileName + L"_" +
+            TGSNodeID + L"_" +
+            std::to_wstring(sys_time.wYear) + L"_" +
+            std::to_wstring(sys_time.wMonth) + L"_" +
+            std::to_wstring(sys_time.wDay) + L"_" +
+            std::to_wstring(sys_time.wHour) + L"_" +
+            std::to_wstring(sys_time.wMinute) +
+            L".bin");
+
+        MyFile.open(fullFileName.c_str(), std::ios::binary);
         if (!MyFile.is_open()) {
             closesocket(sock);
             // OutputDebugStringA("Bind failed!\n");
@@ -351,7 +404,7 @@ void udpListener(ListenerParams params, HWND hwnd)
                                    reinterpret_cast<sockaddr*>(&clientAddr), &clientAddrLen);
 
             if (recvLen == SOCKET_ERROR) {
-                std::cout << "recvfrom failed" << std::endl;
+                std::cout << "recvFrom failed" << std::endl;
                 break;
             }
 
@@ -376,44 +429,54 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     {
         // Scene 1: Text labels as STATIC boxes, plus input boxes as EDIT boxes
         hText1 = CreateWindowW(L"STATIC", L"UDP Source IP:", WS_VISIBLE | WS_CHILD | ES_LEFT,
-                               20, 10, 150, 20, hwnd, nullptr, nullptr, nullptr);
+                               50, 20, 150, 20, hwnd, nullptr, nullptr, nullptr);
         hInput1 = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_LEFT,
-                                20, 40, 150, 20, hwnd, reinterpret_cast<HMENU>(INPUT1_ID), nullptr, nullptr);
+                                50, 50, 150, 20, hwnd, reinterpret_cast<HMENU>(INPUT1_ID), nullptr, nullptr);
 
         hText2 = CreateWindowW(L"STATIC", L"UDP Destination IP:", WS_VISIBLE | WS_CHILD | ES_LEFT,
-                               20, 70, 150, 20, hwnd, nullptr, nullptr, nullptr);
+                               50, 90, 150, 20, hwnd, nullptr, nullptr, nullptr);
         hInput2 = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_LEFT,
-                                20, 100, 150, 20, hwnd, reinterpret_cast<HMENU>(INPUT2_ID), nullptr, nullptr);
+                                50, 120, 150, 20, hwnd, reinterpret_cast<HMENU>(INPUT2_ID), nullptr, nullptr);
+
+        // ------------------------------------------------------------------------------------
 
         hText3 = CreateWindowW(L"STATIC", L"UDP Port 1:", WS_VISIBLE | WS_CHILD | ES_LEFT,
-                               20, 130, 150, 20, hwnd, nullptr, nullptr, nullptr);
+                               250, 20, 150, 20, hwnd, nullptr, nullptr, nullptr);
         hInput3 = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_LEFT,
-                                20, 160, 150, 20, hwnd, reinterpret_cast<HMENU>(INPUT3_ID), nullptr, nullptr);
+                                250, 50, 150, 20, hwnd, reinterpret_cast<HMENU>(INPUT3_ID), nullptr, nullptr);
 
-        hText4 = CreateWindowW(L"STATIC", L"UDP Port 2", WS_VISIBLE | WS_CHILD | ES_LEFT,
-                               20, 190, 150, 20, hwnd, nullptr, nullptr, nullptr);
+        hText4 = CreateWindowW(L"STATIC", L"UDP Port 2:", WS_VISIBLE | WS_CHILD | ES_LEFT,
+                               250, 90, 150, 20, hwnd, nullptr, nullptr, nullptr);
         hInput4 = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_LEFT,
-                                20, 220, 150, 20, hwnd, reinterpret_cast<HMENU>(INPUT4_ID), nullptr, nullptr);
+                                250, 120, 150, 20, hwnd, reinterpret_cast<HMENU>(INPUT4_ID), nullptr, nullptr);
 
-        hButtonTest = CreateWindowW(L"BUTTON", L"Test Connections", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
-                                 20, 260, 150, 20, hwnd, reinterpret_cast<HMENU>(BUTTON1_ID), nullptr, nullptr);
+        // ------------------------------------------------------------------------------------
+
+        hText5 = CreateWindowW(L"STATIC", L"TGS Node ID:", WS_VISIBLE | WS_CHILD | ES_LEFT,
+                       50, 160, 150, 20, hwnd, nullptr, nullptr, nullptr);
+        hInput5 = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_LEFT,
+                                50, 190, 150, 20, hwnd, reinterpret_cast<HMENU>(INPUT5_ID), nullptr, nullptr);
 
         if (found_address) {
             std::wstring text = L"Possible Destination IP: " + ethernet_addr + L" (Ethernet IP)";
             ipText = CreateWindowW(L"STATIC", text.c_str(),
                                     WS_CHILD | ES_LEFT,
-                                    20, 300, 350, 20, hwnd, nullptr, nullptr, nullptr);
+                                    50, 240, 350, 20, hwnd, nullptr, nullptr, nullptr);
         }
+
+        hButtonTest = CreateWindowW(L"BUTTON", L"Test Connections", WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
+                                 150, 290, 150, 30, hwnd, reinterpret_cast<HMENU>(BUTTON1_ID), nullptr, nullptr);
+
 
         // Scene 2: all texts as static boxes
         test_text_1 = CreateWindowW(L"STATIC", L"Test port", WS_CHILD | ES_LEFT,
-                                    20, 20, 300, 40, hwnd, nullptr, nullptr, nullptr);
+                                    50, 20, 350, 40, hwnd, nullptr, nullptr, nullptr);
         test_text_2 = CreateWindowW(L"STATIC", L"Test port", WS_CHILD | ES_LEFT,
-                                    20, 70, 300, 40, hwnd, nullptr, nullptr, nullptr);
+                                    50, 70, 350, 40, hwnd, nullptr, nullptr, nullptr);
         test_text_3 = CreateWindowW(L"STATIC", L"Test port", WS_CHILD | ES_LEFT,
-                                    20, 120, 300, 40, hwnd, nullptr, nullptr, nullptr);
+                                    50, 120, 350, 40, hwnd, nullptr, nullptr, nullptr);
         test_text_4 = CreateWindowW(L"STATIC", L"Test port", WS_CHILD | ES_LEFT,
-                                    20, 170, 300, 40, hwnd, nullptr, nullptr, nullptr);
+                                    50, 170, 350, 40, hwnd, nullptr, nullptr, nullptr);
 
         hButton2 = CreateWindowW(L"BUTTON", L"Start Capturing", WS_CHILD | BS_PUSHBUTTON,
                                  175, 220, 100, 30, hwnd, reinterpret_cast<HMENU>(BUTTON2_ID), nullptr, nullptr);
@@ -429,7 +492,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                                        20, 80, 400, 60, hwnd, nullptr, nullptr, nullptr);
 
         hButtonStop = CreateWindowW(L"BUTTON", L"Stop Capturing", WS_CHILD | BS_PUSHBUTTON,
-                                 175, 200, 100, 30, hwnd, reinterpret_cast<HMENU>(BUTTON4_ID), nullptr, nullptr);
+                                 150, 200, 100, 30, hwnd, reinterpret_cast<HMENU>(BUTTON4_ID), nullptr, nullptr);
 
         // Show only scene 1 at start
         ShowScene1(TRUE);
@@ -441,6 +504,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
     case WM_COMMAND:{
         switch (LOWORD(wParam)) {
+
+            // On "Test Connections" button pressed
             case BUTTON1_ID: {
 
                 // Read inputs on button press
@@ -448,6 +513,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 GetWindowText(GetDlgItem(hwnd, INPUT2_ID), input_dst_ip, sizeof(input_dst_ip));
                 GetWindowText(GetDlgItem(hwnd, INPUT3_ID), input_1, sizeof(input_1));
                 GetWindowText(GetDlgItem(hwnd, INPUT4_ID), input_2, sizeof(input_2));
+                GetWindowText(GetDlgItem(hwnd, INPUT5_ID), inputTGSNodeID, sizeof(inputTGSNodeID));
 
                 input_src_ip_str = std::string(input_src_ip);
                 input_dst_ip_str = std::string(input_dst_ip);
@@ -466,9 +532,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     break;
                 }
 
-                ShowScene1(FALSE);
-                ShowScene2(TRUE);
-                ShowScene3(FALSE);
+                std::string inputTGSNodeID_str = inputTGSNodeID; // narrow string from input
+                TGSNodeID = std::wstring(inputTGSNodeID_str.begin(), inputTGSNodeID_str.end());
 
                 testPorts[0] = input_port_1;
                 testPorts[1] = input_port_1 + 1;
@@ -478,6 +543,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 // Run the test first
                 tests_passed = false;
                 tests_passed = testUdpCommunication(input_dst_ip, testPorts, 4);
+
+                ShowScene1(FALSE);
+                ShowScene2(TRUE);
+                ShowScene3(FALSE);
+
                 if (!tests_passed) {
                     SetWindowText(hButton2, "Go Back");
                     MessageBox(hwnd, "UDP test communication failed. Check your IP and ports.", "Error", MB_OK | MB_ICONERROR);
@@ -488,12 +558,23 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 break;
             }
 
+            // On either "Go Back" or "Start Recording" button pressed
             case BUTTON2_ID:
                 {
+                // If "Go Back"
                 if (!tests_passed) {
                     ShowScene1(TRUE);
                     ShowScene2(FALSE);
                     ShowScene3(FALSE);
+                    break;
+                }
+
+                // Else if "Start Recording"
+
+                // Ask user for output folder
+                chosenOutputDirectory = ChooseOutputFolder(hwnd);
+                if (chosenOutputDirectory.empty()) {
+                    MessageBox(hwnd, "No folder selected. Cancelling.", "Info", MB_OK);
                     break;
                 }
 
@@ -512,11 +593,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
                 SetWindowTextW(info_text, full_info_text.c_str());
 
+                GetLocalTime(&sys_time);
+
                 // Initialize listeners with user input
-                listeners[0] = { input_dst_ip, (input_port_1), input_src_ip,false};
-                listeners[1] = { input_dst_ip, (input_port_1 + 1), input_src_ip,false};
-                listeners[2] = { input_dst_ip, (input_port_2), input_src_ip,false};
-                listeners[3] = { input_dst_ip, (input_port_2 + 1), input_src_ip,false};
+                listeners[0] = { input_dst_ip, (input_port_1), input_src_ip, false, L"ST1_Data"};
+                listeners[1] = { input_dst_ip, (input_port_1 + 1), input_src_ip, false, L"ST1_MetaData"};
+                listeners[2] = { input_dst_ip, (input_port_2), input_src_ip, false, L"ST2_Data"};
+                listeners[3] = { input_dst_ip, (input_port_2 + 1), input_src_ip, false, L"ST2_MetaData"};
 
                 running = true;
 
@@ -529,8 +612,16 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
             }
 
-            case BUTTON3_ID: {
-                // At least one test failed but try and record all ports still.
+            // On "Start Recording Anyway" button pressed
+            case BUTTON3_ID: { // At least one test failed but try and record all ports still.
+
+                // Ask user for output folder
+                chosenOutputDirectory = ChooseOutputFolder(hwnd);
+                if (chosenOutputDirectory.empty()) {
+                    MessageBox(hwnd, "No folder selected. Cancelling.", "Info", MB_OK);
+                    break;
+                }
+
                 ShowScene1(FALSE);
                 ShowScene2(FALSE);
                 ShowScene3(TRUE);
@@ -546,11 +637,17 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
                 SetWindowTextW(info_text, full_info_text.c_str());
 
+                GetLocalTime(&sys_time);
+
                 // Initialize listeners with user input
-                listeners[0] = { input_dst_ip, (input_port_1), input_src_ip, false};
-                listeners[1] = { input_dst_ip, (input_port_1 + 1), input_src_ip,false};
-                listeners[2] = { input_dst_ip, (input_port_2), input_src_ip,false};
-                listeners[3] = { input_dst_ip, (input_port_2 + 1), input_src_ip,false};
+                listeners[0] = { input_dst_ip, (input_port_1), input_src_ip,
+                    false, L"ST1_Data"};
+                listeners[1] = { input_dst_ip, (input_port_1 + 1), input_src_ip,
+                    false, L"ST1_MetaData"};
+                listeners[2] = { input_dst_ip, (input_port_2), input_src_ip,
+                    false, L"ST2_Data"};
+                listeners[3] = { input_dst_ip, (input_port_2 + 1), input_src_ip,
+                    false, L"ST2_MetaData"};
 
                 running = true;
 
@@ -562,8 +659,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 break;
             }
 
+            // On "Stop Capturing" button pressed
             case BUTTON4_ID: {
-                // Stop listeners on second button press
                 running = false;
 
                 // Join threads
@@ -621,7 +718,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
     wc.lpfnWndProc = WindowProc;
     wc.hInstance = hInstance;
     wc.lpszClassName = CLASS_NAME;
-    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    wc.hbrBackground = CreateSolidBrush(RGB(240, 248, 255));
 
     RegisterClass(&wc);
 
@@ -631,7 +728,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
     HWND hwnd = CreateWindowEx(
         0,
         CLASS_NAME,
-        "UDP Network Capturer",
+        "Telemetry Data Recorder",
         (WS_OVERLAPPEDWINDOW & ~(WS_THICKFRAME | WS_MAXIMIZEBOX)),
         CW_USEDEFAULT, CW_USEDEFAULT, 450, 400,
         nullptr,
