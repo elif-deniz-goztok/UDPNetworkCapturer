@@ -5,6 +5,7 @@
 #include <thread>
 #include <atomic>
 #include <string>
+#include <utility>
 #include <iphlpapi.h>
 #include <ws2tcpip.h>
 #include <shobjidl.h> // for IFileDialog
@@ -31,40 +32,40 @@ HWND ipText;
 HWND hButtonTest;
 
 // Scene 2 controls
-HWND test_text_1, test_text_2, test_text_3, test_text_4;
+HWND testText1, testText2, testText3, testText4;
 HWND hButtonStartAnyway;
 HWND hButton2;
 
 // Scene 3 controls
-HWND info_text;
-HWND capturing_text;
+HWND infoText;
+HWND capturingText;
 HWND hButtonStop;
 
 // Shared variables
 std::atomic<bool> running(false); // Start as false, start listeners only on button
-char input_dst_ip[256], input_src_ip[256], input_1[256], input_2[256], inputTGSNodeID[256];
-int input_port_1, input_port_2, testPorts[4];
-bool tests_passed = true;
-std::string input_dst_ip_str, input_src_ip_str;
-std::wstring ethernet_addr, result, full_info_text, TGSNodeID, chosenOutputDirectory;
+char inputDstIP[256], inputSrcIP[256], input1[256], input2[256], inputTGSNodeID[256];
+int inputPort1, inputPort2, testPorts[4];
+bool testsPassed = true;
+std::string inputDstIPStr, inputSrcIPStr;
+std::wstring ethernetAddr, result, full_InfoText, TGSNodeID, chosenOutputDirectory;
 SYSTEMTIME sys_time;
 
 struct ListenerParams {
     const char* localIP = nullptr;
     int localPort = -1;
     const char* allowedSenderIP = nullptr;
-    bool started_recording = false;
+    bool startedRecording = false;
     std::wstring fileName;
 
     ListenerParams() = default;
-    ListenerParams(const char* ip, int port, const char* allowedIP, bool recording, const std::wstring& fName)
-        : localIP(ip), localPort(port), allowedSenderIP(allowedIP), started_recording(recording), fileName(fName) {}
+    ListenerParams(const char* ip, int port, const char* allowedIP, bool recording, std::wstring  fName)
+        : localIP(ip), localPort(port), allowedSenderIP(allowedIP), startedRecording(recording), fileName(std::move(fName)) {}
 };
 
 std::thread threads[4];
 ListenerParams listeners[4];
 bool listenersStarted = false;
-bool found_address = false;
+bool foundAddress = false;
 
 void ShowScene1(BOOL show)
 {
@@ -79,37 +80,31 @@ void ShowScene1(BOOL show)
     ShowWindow(hText5, show);
     ShowWindow(hInput5, show);
     ShowWindow(hButtonTest, show);
-    if (found_address) {
+    if (foundAddress) {
         ShowWindow(ipText, show);
     }
 }
 
 void ShowScene2(BOOL show)
 {
-    ShowWindow(test_text_1, show);
-    ShowWindow(test_text_2, show);
-    ShowWindow(test_text_3, show);
-    ShowWindow(test_text_4, show);
+    ShowWindow(testText1, show);
+    ShowWindow(testText2, show);
+    ShowWindow(testText3, show);
+    ShowWindow(testText4, show);
     ShowWindow(hButton2, show);
-    if (!tests_passed) {
+    if (!testsPassed) {
         ShowWindow(hButtonStartAnyway, show);
     }
 }
 
 void ShowScene3(BOOL show)
 {
-    ShowWindow(info_text, show);
-    /*
-    ShowWindow(test_text_1, show);
-    ShowWindow(test_text_2, show);
-    ShowWindow(test_text_3, show);
-    ShowWindow(test_text_4, show);
-    */
-    ShowWindow(capturing_text, show);
+    ShowWindow(infoText, show);
+    ShowWindow(capturingText, show);
     ShowWindow(hButtonStop, show);
 }
 
-std::wstring find_ethernet_address() {
+std::wstring findEthernetAddress() {
     ULONG outBufLen = 15000;
     auto adapterAddresses = static_cast<PIP_ADAPTER_ADDRESSES>(malloc(outBufLen));
     if (!adapterAddresses) return L"";
@@ -139,10 +134,11 @@ std::wstring find_ethernet_address() {
                         break;
                     }
                 }
-                }
+            }
             if (!result.empty()) break; // Stop once found
         }
     }
+
     free(adapterAddresses);
     return result; // Empty if not found
 }
@@ -183,18 +179,18 @@ std::wstring ChooseOutputFolder(HWND hwnd) {
     return folderPath;
 }
 
-bool input_values_pass_tests() {
+bool inputValuesPassTests() {
     in_addr addr1{};
     in_addr addr2{};
 
-    if (input_src_ip_str.empty() || input_dst_ip_str.empty()
-        || input_src_ip_str.find('-') != std::string::npos
-        || input_src_ip_str.find('-') != std::string::npos
-        || input_src_ip_str == "0.0.0.0" || input_dst_ip_str == "0.0.0.0"
-        || input_port_1 > 65535 || input_port_2 > 65535
-        || input_port_1 <= 0 || input_port_2 <= 0
-        || (inet_pton(AF_INET, input_src_ip, &addr1) != 1)
-        || (inet_pton(AF_INET, input_dst_ip, &addr2) != 1)
+    if (inputSrcIPStr.empty() || inputDstIPStr.empty()
+        || inputSrcIPStr.find('-') != std::string::npos
+        || inputSrcIPStr.find('-') != std::string::npos
+        || inputSrcIPStr == "0.0.0.0" || inputDstIPStr == "0.0.0.0"
+        || inputPort1 > 65535 || inputPort2 > 65535
+        || inputPort1 <= 0 || inputPort2 <= 0
+        || (inet_pton(AF_INET, inputSrcIP, &addr1) != 1)
+        || (inet_pton(AF_INET, inputDstIP, &addr2) != 1)
         || strlen(inputTGSNodeID) == 0
         ) {
             return false;
@@ -202,26 +198,26 @@ bool input_values_pass_tests() {
     return true;
 }
 
-void change_test_text(const std::string& input_dst_ip_str, int port_num, int ports[], const std::string& test_message) {
+void changeTestText(const std::string& inputDstIPStr, int port_num, int ports[], const std::string& test_message) {
     std::string full_message;
-    if (input_dst_ip_str.empty()) {
+    if (inputDstIPStr.empty()) {
         full_message = "Test port";
     } else {
-        full_message = input_dst_ip_str + ":" + std::to_string(ports[port_num]) + " -> " + test_message;
+        full_message = inputDstIPStr + ":" + std::to_string(ports[port_num]) + " -> " + test_message;
     }
 
     switch (port_num) {
         case 0:
-            SetWindowText(test_text_1, full_message.c_str());
+            SetWindowText(testText1, full_message.c_str());
         break;
         case 1:
-            SetWindowText(test_text_2, full_message.c_str());
+            SetWindowText(testText2, full_message.c_str());
         break;
         case 2:
-            SetWindowText(test_text_3, full_message.c_str());
+            SetWindowText(testText3, full_message.c_str());
         break;
         case 3:
-            SetWindowText(test_text_4, full_message.c_str());
+            SetWindowText(testText4, full_message.c_str());
         break;
         default:
             break;
@@ -234,9 +230,8 @@ bool testUdpCommunication(const char* localIP, int ports[], int portCount)
     for (int i = 0; i < portCount; i++) {
         for (int j = 0; j < portCount; j++) {
             if ((i != j) && (ports[i] == ports[j])) {
-                change_test_text(localIP, i, ports,"Ports crashed.");
-                change_test_text(localIP, j, ports,"Ports crashed.");
-                // OutputDebugStringA("Ports crashed!\n");
+                changeTestText(localIP, i, ports,"Ports crashed.");
+                changeTestText(localIP, j, ports,"Ports crashed.");
                 return false;
             }
         }
@@ -248,8 +243,7 @@ bool testUdpCommunication(const char* localIP, int ports[], int portCount)
     for (int i = 0; i < portCount; i++) {
         recvSockets[i] = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
         if (recvSockets[i] == INVALID_SOCKET) {
-            change_test_text(localIP, i, ports,"Failed to create test recv socket.");
-            // OutputDebugStringA("Failed to create test recv socket.\n");
+            changeTestText(localIP, i, ports,"Failed to create test recv socket.");
 
             // Cleanup created sockets
             for (int j = 0; j < i; ++j) closesocket(recvSockets[j]);
@@ -265,8 +259,7 @@ bool testUdpCommunication(const char* localIP, int ports[], int portCount)
         setsockopt(recvSockets[i], SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&optVal), sizeof(optVal));
 
         if (bind(recvSockets[i], reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == SOCKET_ERROR) {
-            change_test_text(localIP, i, ports,"Failed to bind test recv socket 2.");
-            // OutputDebugStringA("Failed to bind test recv socket 2.\n");
+            changeTestText(localIP, i, ports,"Failed to bind test recv socket 2.");
             for (int j = 0; j <= i; ++j) closesocket(recvSockets[j]);
             return false;
         }
@@ -297,13 +290,13 @@ bool testUdpCommunication(const char* localIP, int ports[], int portCount)
         if (selectRes == 0) {
             // timeout
             for (int i = 0; i < portCount; i++) {
-                change_test_text(localIP, i, ports,"Failed with timeout.");
+                changeTestText(localIP, i, ports,"Failed with timeout.");
             }
             break;
         }
         if (selectRes == SOCKET_ERROR) {
             for (int i = 0; i < portCount; i++) {
-                change_test_text(localIP, i, ports,"select() failed during test.");
+                changeTestText(localIP, i, ports,"select() failed during test.");
             }
             break;
         }
@@ -316,10 +309,10 @@ bool testUdpCommunication(const char* localIP, int ports[], int portCount)
                                        reinterpret_cast<sockaddr*>(&fromAddr), &fromLen);
                 if (recvLen > 0) {
                     received[i] = true;
-                    change_test_text(localIP, i, ports,"Tests successful.");
+                    changeTestText(localIP, i, ports,"Tests successful.");
                     remaining--;
                 } else {
-                    change_test_text(localIP, i, ports,"RecvLen < 0.");
+                    changeTestText(localIP, i, ports,"RecvLen < 0.");
                     remaining--;
                 }
             }
@@ -345,12 +338,9 @@ void udpListener(ListenerParams params, HWND hwnd)
     int clientAddrLen = sizeof(clientAddr);
 
     // Keep trying until we can start recording
-    while (!params.started_recording && running) {
+    while (!params.startedRecording && running) {
         sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-        if (sock == INVALID_SOCKET) {
-            // OutputDebugStringA("Bind failed!\n");
-            continue;
-        }
+        if (sock == INVALID_SOCKET) continue;
 
         sockaddr_in serverAddr{};
         serverAddr.sin_family = AF_INET;
@@ -362,12 +352,11 @@ void udpListener(ListenerParams params, HWND hwnd)
 
         if (bind(sock, reinterpret_cast<sockaddr*>(&serverAddr), sizeof(serverAddr)) == SOCKET_ERROR) {
             closesocket(sock);
-            // OutputDebugStringA("Bind failed!\n");
             continue;  // Retry
         }
 
         // example params.fileName = "ST1_MetaData"
-        // example fullFileName = "ST1_MetaData_TGSNodeID_YearMonthDay_HourMinut.bin"
+        // example fullFileName = "ST1_MetaData_TGSNodeID_Year_Month_Day_Hour_Minute.bin"
         std::wstring fullFileName = (chosenOutputDirectory + L"\\" + params.fileName + L"_" +
             TGSNodeID + L"_" +
             std::to_wstring(sys_time.wYear) + L"_" +
@@ -384,12 +373,11 @@ void udpListener(ListenerParams params, HWND hwnd)
             continue;  // Retry
         }
 
-        params.started_recording = true;  // Success! start recording
-        // OutputDebugStringA("Starting the record.\n");
+        params.startedRecording = true;  // Success! start recording
     }
 
     // Recording loop
-    while (running && params.started_recording) {
+    while (running && params.startedRecording) {
         fd_set readfds;
         FD_ZERO(&readfds);
         FD_SET(sock, &readfds);
@@ -457,8 +445,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         hInput5 = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_LEFT,
                                 50, 190, 150, 20, hwnd, reinterpret_cast<HMENU>(INPUT5_ID), nullptr, nullptr);
 
-        if (found_address) {
-            std::wstring text = L"Possible Destination IP: " + ethernet_addr + L" (Ethernet IP)";
+        if (foundAddress) {
+            std::wstring text = L"Possible Destination IP: " + ethernetAddr + L" (Ethernet IP)";
             ipText = CreateWindowW(L"STATIC", text.c_str(),
                                     WS_CHILD | ES_LEFT,
                                     50, 240, 350, 20, hwnd, nullptr, nullptr, nullptr);
@@ -469,13 +457,13 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
 
         // Scene 2: all texts as static boxes
-        test_text_1 = CreateWindowW(L"STATIC", L"Test port", WS_CHILD | ES_LEFT,
+        testText1 = CreateWindowW(L"STATIC", L"Test port", WS_CHILD | ES_LEFT,
                                     50, 20, 350, 40, hwnd, nullptr, nullptr, nullptr);
-        test_text_2 = CreateWindowW(L"STATIC", L"Test port", WS_CHILD | ES_LEFT,
+        testText2 = CreateWindowW(L"STATIC", L"Test port", WS_CHILD | ES_LEFT,
                                     50, 70, 350, 40, hwnd, nullptr, nullptr, nullptr);
-        test_text_3 = CreateWindowW(L"STATIC", L"Test port", WS_CHILD | ES_LEFT,
+        testText3 = CreateWindowW(L"STATIC", L"Test port", WS_CHILD | ES_LEFT,
                                     50, 120, 350, 40, hwnd, nullptr, nullptr, nullptr);
-        test_text_4 = CreateWindowW(L"STATIC", L"Test port", WS_CHILD | ES_LEFT,
+        testText4 = CreateWindowW(L"STATIC", L"Test port", WS_CHILD | ES_LEFT,
                                     50, 170, 350, 40, hwnd, nullptr, nullptr, nullptr);
 
         hButton2 = CreateWindowW(L"BUTTON", L"Start Capturing", WS_CHILD | BS_PUSHBUTTON,
@@ -485,10 +473,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                          125, 260, 200, 30, hwnd, reinterpret_cast<HMENU>(BUTTON3_ID), nullptr, nullptr);
 
         // Scene 3: text 8 as static box and button
-        capturing_text = CreateWindowW(L"STATIC", L"Capturing UDP Packets...", WS_CHILD | ES_LEFT,
+        capturingText = CreateWindowW(L"STATIC", L"Capturing UDP Packets...", WS_CHILD | ES_LEFT,
                                        20, 50, 400, 20, hwnd, nullptr, nullptr, nullptr);
 
-        info_text = CreateWindowW(L"STATIC", full_info_text.c_str(), WS_CHILD | ES_LEFT,
+        infoText = CreateWindowW(L"STATIC", full_InfoText.c_str(), WS_CHILD | ES_LEFT,
                                        20, 80, 400, 60, hwnd, nullptr, nullptr, nullptr);
 
         hButtonStop = CreateWindowW(L"BUTTON", L"Stop Capturing", WS_CHILD | BS_PUSHBUTTON,
@@ -509,20 +497,20 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             case BUTTON1_ID: {
 
                 // Read inputs on button press
-                GetWindowText(GetDlgItem(hwnd, INPUT1_ID), input_src_ip, sizeof(input_src_ip));
-                GetWindowText(GetDlgItem(hwnd, INPUT2_ID), input_dst_ip, sizeof(input_dst_ip));
-                GetWindowText(GetDlgItem(hwnd, INPUT3_ID), input_1, sizeof(input_1));
-                GetWindowText(GetDlgItem(hwnd, INPUT4_ID), input_2, sizeof(input_2));
+                GetWindowText(GetDlgItem(hwnd, INPUT1_ID), inputSrcIP, sizeof(inputSrcIP));
+                GetWindowText(GetDlgItem(hwnd, INPUT2_ID), inputDstIP, sizeof(inputDstIP));
+                GetWindowText(GetDlgItem(hwnd, INPUT3_ID), input1, sizeof(input1));
+                GetWindowText(GetDlgItem(hwnd, INPUT4_ID), input2, sizeof(input2));
                 GetWindowText(GetDlgItem(hwnd, INPUT5_ID), inputTGSNodeID, sizeof(inputTGSNodeID));
 
-                input_src_ip_str = std::string(input_src_ip);
-                input_dst_ip_str = std::string(input_dst_ip);
-                input_port_1 = atoi(input_1);
-                input_port_2 = atoi(input_2);
+                inputSrcIPStr = std::string(inputSrcIP);
+                inputDstIPStr = std::string(inputDstIP);
+                inputPort1 = atoi(input1);
+                inputPort2 = atoi(input2);
 
                 // OutputDebugStringA("First try.\n");
 
-                if (!input_values_pass_tests()){
+                if (!inputValuesPassTests()){
 
                     ShowScene1(TRUE);
                     ShowScene2(FALSE);
@@ -535,20 +523,20 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 std::string inputTGSNodeID_str = inputTGSNodeID; // narrow string from input
                 TGSNodeID = std::wstring(inputTGSNodeID_str.begin(), inputTGSNodeID_str.end());
 
-                testPorts[0] = input_port_1;
-                testPorts[1] = input_port_1 + 1;
-                testPorts[2] = input_port_2;
-                testPorts[3] = input_port_2 + 1;
+                testPorts[0] = inputPort1;
+                testPorts[1] = inputPort1 + 1;
+                testPorts[2] = inputPort2;
+                testPorts[3] = inputPort2 + 1;
 
                 // Run the test first
-                tests_passed = false;
-                tests_passed = testUdpCommunication(input_dst_ip, testPorts, 4);
+                testsPassed = false;
+                testsPassed = testUdpCommunication(inputDstIP, testPorts, 4);
 
                 ShowScene1(FALSE);
                 ShowScene2(TRUE);
                 ShowScene3(FALSE);
 
-                if (!tests_passed) {
+                if (!testsPassed) {
                     SetWindowText(hButton2, "Go Back");
                     MessageBox(hwnd, "UDP test communication failed. Check your IP and ports.", "Error", MB_OK | MB_ICONERROR);
                     break;
@@ -562,7 +550,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             case BUTTON2_ID:
                 {
                 // If "Go Back"
-                if (!tests_passed) {
+                if (!testsPassed) {
                     ShowScene1(TRUE);
                     ShowScene2(FALSE);
                     ShowScene3(FALSE);
@@ -582,24 +570,24 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 ShowScene2(FALSE);
                 ShowScene3(TRUE);
 
-                full_info_text = (
-                    L"UDP Source IP: " + std::wstring(input_src_ip_str.begin(), input_src_ip_str.end()) +
-                    L"\nUDP Destination IP: " + std::wstring(input_dst_ip_str.begin(), input_dst_ip_str.end()) +
+                full_InfoText = (
+                    L"UDP Source IP: " + std::wstring(inputSrcIPStr.begin(), inputSrcIPStr.end()) +
+                    L"\nUDP Destination IP: " + std::wstring(inputDstIPStr.begin(), inputDstIPStr.end()) +
                     L"\nUDP Destination Ports: " +
-                    std::to_wstring(input_port_1) + L", " +
-                    std::to_wstring(input_port_1 + 1) + L", " +
-                    std::to_wstring(input_port_2) + L", " +
-                    std::to_wstring(input_port_2 + 1));
+                    std::to_wstring(inputPort1) + L", " +
+                    std::to_wstring(inputPort1 + 1) + L", " +
+                    std::to_wstring(inputPort2) + L", " +
+                    std::to_wstring(inputPort2 + 1));
 
-                SetWindowTextW(info_text, full_info_text.c_str());
+                SetWindowTextW(infoText, full_InfoText.c_str());
 
                 GetLocalTime(&sys_time);
 
                 // Initialize listeners with user input
-                listeners[0] = { input_dst_ip, (input_port_1), input_src_ip, false, L"ST1_Data"};
-                listeners[1] = { input_dst_ip, (input_port_1 + 1), input_src_ip, false, L"ST1_MetaData"};
-                listeners[2] = { input_dst_ip, (input_port_2), input_src_ip, false, L"ST2_Data"};
-                listeners[3] = { input_dst_ip, (input_port_2 + 1), input_src_ip, false, L"ST2_MetaData"};
+                listeners[0] = { inputDstIP, (inputPort1), inputSrcIP, false, L"ST1_Data"};
+                listeners[1] = { inputDstIP, (inputPort1 + 1), inputSrcIP, false, L"ST1_MetaData"};
+                listeners[2] = { inputDstIP, (inputPort2), inputSrcIP, false, L"ST2_Data"};
+                listeners[3] = { inputDstIP, (inputPort2 + 1), inputSrcIP, false, L"ST2_MetaData"};
 
                 running = true;
 
@@ -626,27 +614,27 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 ShowScene2(FALSE);
                 ShowScene3(TRUE);
 
-                full_info_text = (
-                    L"UDP Source IP: " + std::wstring(input_src_ip_str.begin(), input_src_ip_str.end()) +
-                    L"\nUDP Destination IP: " + std::wstring(input_dst_ip_str.begin(), input_dst_ip_str.end()) +
+                full_InfoText = (
+                    L"UDP Source IP: " + std::wstring(inputSrcIPStr.begin(), inputSrcIPStr.end()) +
+                    L"\nUDP Destination IP: " + std::wstring(inputDstIPStr.begin(), inputDstIPStr.end()) +
                     L"\nUDP Destination Ports: " +
-                    std::to_wstring(input_port_1) + L", " +
-                    std::to_wstring(input_port_1 + 1) + L", " +
-                    std::to_wstring(input_port_2) + L", " +
-                    std::to_wstring(input_port_2 + 1));
+                    std::to_wstring(inputPort1) + L", " +
+                    std::to_wstring(inputPort1 + 1) + L", " +
+                    std::to_wstring(inputPort2) + L", " +
+                    std::to_wstring(inputPort2 + 1));
 
-                SetWindowTextW(info_text, full_info_text.c_str());
+                SetWindowTextW(infoText, full_InfoText.c_str());
 
                 GetLocalTime(&sys_time);
 
                 // Initialize listeners with user input
-                listeners[0] = { input_dst_ip, (input_port_1), input_src_ip,
+                listeners[0] = { inputDstIP, (inputPort1), inputSrcIP,
                     false, L"ST1_Data"};
-                listeners[1] = { input_dst_ip, (input_port_1 + 1), input_src_ip,
+                listeners[1] = { inputDstIP, (inputPort1 + 1), inputSrcIP,
                     false, L"ST1_MetaData"};
-                listeners[2] = { input_dst_ip, (input_port_2), input_src_ip,
+                listeners[2] = { inputDstIP, (inputPort2), inputSrcIP,
                     false, L"ST2_Data"};
-                listeners[3] = { input_dst_ip, (input_port_2 + 1), input_src_ip,
+                listeners[3] = { inputDstIP, (inputPort2 + 1), inputSrcIP,
                     false, L"ST2_MetaData"};
 
                 running = true;
@@ -671,6 +659,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
                 listenersStarted = false;
                 MessageBox(hwnd, "Listeners stopped. Closing application.", "Info", MB_OK);
+
+                DestroyWindow(hwnd);
                 PostQuitMessage(0);
                 break;
             }
@@ -691,7 +681,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         }
 
 
-
+        DestroyWindow(hwnd);
         PostQuitMessage(0);
         return 0;
         }
@@ -718,17 +708,17 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
     wc.lpfnWndProc = WindowProc;
     wc.hInstance = hInstance;
     wc.lpszClassName = CLASS_NAME;
-    wc.hbrBackground = CreateSolidBrush(RGB(240, 248, 255));
+    wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW+1);
 
     RegisterClass(&wc);
 
-    ethernet_addr = find_ethernet_address();
-    found_address = !ethernet_addr.empty();
+    ethernetAddr = findEthernetAddress();
+    foundAddress = !ethernetAddr.empty();
 
     HWND hwnd = CreateWindowEx(
         0,
         CLASS_NAME,
-        "Telemetry Data Recorder",
+        "TELEMETRY DATA RECORDER",
         (WS_OVERLAPPEDWINDOW & ~(WS_THICKFRAME | WS_MAXIMIZEBOX)),
         CW_USEDEFAULT, CW_USEDEFAULT, 450, 400,
         nullptr,
@@ -739,15 +729,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
 
     if (!hwnd)
         return 0;
-
-
-
-    /*
-    ShowScene1(TRUE);
-    ShowScene2(FALSE);
-    ShowScene3(FALSE);
-    */
-
 
     ShowWindow(hwnd, nCmdShow);
 
