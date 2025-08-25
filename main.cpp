@@ -440,7 +440,6 @@ void udpListener(ListenerParams params, HWND hwnd)
     if (outputFile.is_open()) outputFile.close();
 }
 
-
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     switch (uMsg)
@@ -681,6 +680,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
             // On "Stop Capturing" button pressed
             case BUTTON4_ID: {
+
+                // Stop listeners
                 running = false;
 
                 // Join threads
@@ -690,10 +691,41 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 }
 
                 listenersStarted = false;
+
                 MessageBox(hwnd, "Listeners stopped. Closing application.", "Info", MB_OK);
 
-                DestroyWindow(hwnd);
-                PostQuitMessage(0);
+                // Clear input fields
+                SetWindowText(hInput1, "");
+                SetWindowText(hInput2, "");
+                SetWindowText(hInput3, "");
+                SetWindowText(hInput4, "");
+                SetWindowText(hInput5, "");
+
+                // Reset internal variables
+                inputStrDstIP.clear();
+                inputStrSrcIP.clear();
+                inputPort1 = 0;
+                inputPort2 = 0;
+                testPorts[0] = testPorts[1] = testPorts[2] = testPorts[3] = 0;
+                testsPassed = true;
+                chosenOutputDirectory.clear();
+                full_InfoText.clear();
+                TGSNodeID.clear();
+
+                // Reset test scene text
+                SetWindowText(testText1, "Test port");
+                SetWindowText(testText2, "Test port");
+                SetWindowText(testText3, "Test port");
+                SetWindowText(testText4, "Test port");
+
+                // Reset info/capturing scene
+                SetWindowText(infoText, "");
+                SetWindowText(capturingText, "Capturing UDP Packets...");
+
+                // Show only scene 1
+                ShowScene1(TRUE);
+                ShowScene2(FALSE);
+                ShowScene3(FALSE);
                 break;
             }
 
