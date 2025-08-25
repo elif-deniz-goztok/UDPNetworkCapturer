@@ -9,6 +9,7 @@
 #include <iphlpapi.h>
 #include <ws2tcpip.h>
 #include <shobjidl.h> // for IFileDialog
+#include <vector>
 #pragma comment(lib, "iphlpapi.lib")
 #pragma comment(lib, "ws2_32.lib")
 
@@ -344,8 +345,9 @@ void udpListener(ListenerParams params, HWND hwnd)
 
     // Keep trying until we can start recording
     while (!params.startedRecording && running) {
+        // Create socket and bind
         sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-        if (sock == INVALID_SOCKET) continue;
+        if (sock == INVALID_SOCKET) return;
 
         sockaddr_in serverAddr{};
         serverAddr.sin_family = AF_INET;
@@ -357,11 +359,11 @@ void udpListener(ListenerParams params, HWND hwnd)
 
         if (bind(sock, reinterpret_cast<sockaddr*>(&serverAddr), sizeof(serverAddr)) == SOCKET_ERROR) {
             closesocket(sock);
-            continue;  // Retry
+            return;
         }
 
-        // example params.fileName = "ST1_MetaData"
-        // example fullFileName = "ST1_MetaData_TGSNodeID_Year_Month_Day_Hour_Minute.bin"
+        // Example params.fileName = "ST1_MetaData"
+        // Example fullFileName = "ST1_MetaData_TGSNodeID_Year_Month_Day_Hour_Minute.bin"
         std::wstring fullFileName = (chosenOutputDirectory + L"\\" + params.fileName + L"_" +
             TGSNodeID + L"_" +
             std::to_wstring(sys_time.wYear) + L"_" +
@@ -374,12 +376,17 @@ void udpListener(ListenerParams params, HWND hwnd)
         outputFile.open(fullFileName.c_str(), std::ios::binary);
         if (!outputFile.is_open()) {
             closesocket(sock);
-            // OutputDebugStringA("Bind failed!\n");
-            continue;  // Retry
+            return;
         }
 
-        params.startedRecording = true;  // Success! start recording
+        params.startedRecording = true;
     }
+
+    // --- New buffered write setup ---
+    const size_t BUFFER_SIZE = 1024 * 1024 * 2; // 2 MB
+    std::vector<char> bufferCache;
+    bufferCache.reserve(BUFFER_SIZE);
+    auto lastFlushTime = std::chrono::steady_clock::now();
 
     // Recording loop
     while (running && params.startedRecording) {
@@ -388,8 +395,8 @@ void udpListener(ListenerParams params, HWND hwnd)
         FD_SET(sock, &readfds);
 
         timeval timeout{};
-        timeout.tv_sec = 1;  // check running every second
-        timeout.tv_usec = 0;
+        timeout.tv_sec = 0;
+        timeout.tv_usec = 100000; // 0.1 second
 
         int selectResult = select(0, &readfds, nullptr, nullptr, &timeout);
         if (selectResult > 0 && FD_ISSET(sock, &readfds)) {
@@ -397,23 +404,42 @@ void udpListener(ListenerParams params, HWND hwnd)
             int recvLen = recvfrom(sock, buffer, sizeof(buffer), 0,
                                    reinterpret_cast<sockaddr*>(&clientAddr), &clientAddrLen);
 
-            if (recvLen == SOCKET_ERROR) {
-                MessageBox(hwnd, "recvFrom failed. recvLen == SOCKET_ERROR", "Error", MB_OK | MB_ICONERROR);
-                break;
-            }
+            if (recvLen > 0 && clientAddr.sin_addr.s_addr == allowedAddr.s_addr) {
 
-            if (recvLen <= 0) continue; // Ignore zero-length packets
+                // Add packet to cache
+                bufferCache.insert(bufferCache.end(), buffer, buffer + recvLen);
 
-            if (clientAddr.sin_addr.s_addr == allowedAddr.s_addr) {
-                outputFile.write(buffer, recvLen);
-                outputFile.flush();
+                // Flush if buffer is full
+                if (bufferCache.size() >= BUFFER_SIZE) {
+                    outputFile.write(bufferCache.data(), bufferCache.size());
+                    outputFile.flush();
+                    bufferCache.clear();
+                    lastFlushTime = std::chrono::steady_clock::now();
+                }
             }
         }
+
+        // Periodic flush (every 1 second)
+        auto now = std::chrono::steady_clock::now();
+        if (!bufferCache.empty() &&
+            std::chrono::duration_cast<std::chrono::seconds>(now - lastFlushTime).count() >= 1) {
+            outputFile.write(bufferCache.data(), bufferCache.size());
+            outputFile.flush();
+            bufferCache.clear();
+            lastFlushTime = now;
+        }
+    }
+
+    // Write any remaining data
+    if (!bufferCache.empty()) {
+        outputFile.write(bufferCache.data(), bufferCache.size());
+        outputFile.flush();
     }
 
     if (sock != INVALID_SOCKET) closesocket(sock);
     if (outputFile.is_open()) outputFile.close();
 }
+
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
