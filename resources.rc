@@ -1,0 +1,2 @@
+#include "resources.h"   // <- important!
+IDI_APP_ICON ICON "myicon.ico"

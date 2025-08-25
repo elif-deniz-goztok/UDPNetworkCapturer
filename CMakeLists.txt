@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -static-libgcc -static-libstdc++ -static")
 
 # Add main executable
-add_executable(UDPNetworkCapturer WIN32 main.cpp)
+add_executable(UDPNetworkCapturer WIN32 main.cpp resources.rc)
 
 # Link necessary Windows libraries
 target_link_libraries(UDPNetworkCapturer PRIVATE iphlpapi ws2_32)

@@ -10,6 +10,7 @@
 #include <ws2tcpip.h>
 #include <shobjidl.h> // for IFileDialog
 #include <vector>
+#include "resources.h"
 #pragma comment(lib, "iphlpapi.lib")
 #pragma comment(lib, "ws2_32.lib")
 
@@ -692,7 +693,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
                 listenersStarted = false;
 
-                MessageBox(hwnd, "Listeners stopped. Closing application.", "Info", MB_OK);
+                MessageBox(hwnd, "Listeners stopped.", "Info", MB_OK);
 
                 // Clear input fields
                 SetWindowText(hInput1, "");
@@ -771,6 +772,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
     WNDCLASS wc = {};
     wc.lpfnWndProc = WindowProc;
     wc.hInstance = hInstance;
+    wc.hIcon = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_APP_ICON));
     wc.lpszClassName = CLASS_NAME;
     wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW+1);
 
