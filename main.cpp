@@ -46,7 +46,7 @@ std::atomic<bool> running(false); // Start as false, start listeners only on but
 char inputDstIP[256], inputSrcIP[256], input1[256], input2[256], inputTGSNodeID[256];
 int inputPort1, inputPort2, testPorts[4];
 bool testsPassed = true;
-std::string inputDstIPStr, inputSrcIPStr;
+std::string inputStrDstIP, inputStrSrcIP;
 std::wstring ethernetAddr, result, full_InfoText, TGSNodeID, chosenOutputDirectory;
 SYSTEMTIME sys_time;
 
@@ -138,7 +138,6 @@ std::wstring findEthernetAddress() {
             if (!result.empty()) break; // Stop once found
         }
     }
-
     free(adapterAddresses);
     return result; // Empty if not found
 }
@@ -183,10 +182,10 @@ bool inputValuesPassTests() {
     in_addr addr1{};
     in_addr addr2{};
 
-    if (inputSrcIPStr.empty() || inputDstIPStr.empty()
-        || inputSrcIPStr.find('-') != std::string::npos
-        || inputSrcIPStr.find('-') != std::string::npos
-        || inputSrcIPStr == "0.0.0.0" || inputDstIPStr == "0.0.0.0"
+    if (inputStrSrcIP.empty() || inputStrDstIP.empty()
+        || inputStrSrcIP.find('-') != std::string::npos
+        || inputStrSrcIP.find('-') != std::string::npos
+        || inputStrSrcIP == "0.0.0.0" || inputStrDstIP == "0.0.0.0"
         || inputPort1 > 65535 || inputPort2 > 65535
         || inputPort1 <= 0 || inputPort2 <= 0
         || (inet_pton(AF_INET, inputSrcIP, &addr1) != 1)
@@ -198,12 +197,12 @@ bool inputValuesPassTests() {
     return true;
 }
 
-void changeTestText(const std::string& inputDstIPStr, int port_num, int ports[], const std::string& test_message) {
+void changeTestText(const std::string& inputStrDstIP, int port_num, int ports[], const std::string& test_message) {
     std::string full_message;
-    if (inputDstIPStr.empty()) {
+    if (inputStrDstIP.empty()) {
         full_message = "Test port";
     } else {
-        full_message = inputDstIPStr + ":" + std::to_string(ports[port_num]) + " -> " + test_message;
+        full_message = inputStrDstIP + ":" + std::to_string(ports[port_num]) + " -> " + test_message;
     }
 
     switch (port_num) {
@@ -332,10 +331,16 @@ bool testUdpCommunication(const char* localIP, int ports[], int portCount)
 void udpListener(ListenerParams params, HWND hwnd)
 {
     SOCKET sock = INVALID_SOCKET;
-    std::ofstream MyFile;
-    char buffer[1600];
+    std::ofstream outputFile;
     sockaddr_in clientAddr{};
     int clientAddrLen = sizeof(clientAddr);
+
+    // Pre-parse allowed sender IP
+    in_addr allowedAddr{};
+    if (inet_pton(AF_INET, params.allowedSenderIP, &allowedAddr) != 1) {
+        MessageBox(hwnd, "Invalid allowedSenderIP", "Error", MB_OK | MB_ICONERROR);
+        return;
+    }
 
     // Keep trying until we can start recording
     while (!params.startedRecording && running) {
@@ -366,8 +371,8 @@ void udpListener(ListenerParams params, HWND hwnd)
             std::to_wstring(sys_time.wMinute) +
             L".bin");
 
-        MyFile.open(fullFileName.c_str(), std::ios::binary);
-        if (!MyFile.is_open()) {
+        outputFile.open(fullFileName.c_str(), std::ios::binary);
+        if (!outputFile.is_open()) {
             closesocket(sock);
             // OutputDebugStringA("Bind failed!\n");
             continue;  // Retry
@@ -388,25 +393,26 @@ void udpListener(ListenerParams params, HWND hwnd)
 
         int selectResult = select(0, &readfds, nullptr, nullptr, &timeout);
         if (selectResult > 0 && FD_ISSET(sock, &readfds)) {
+            char buffer[1600];
             int recvLen = recvfrom(sock, buffer, sizeof(buffer), 0,
                                    reinterpret_cast<sockaddr*>(&clientAddr), &clientAddrLen);
 
             if (recvLen == SOCKET_ERROR) {
-                std::cout << "recvFrom failed" << std::endl;
+                MessageBox(hwnd, "recvFrom failed. recvLen == SOCKET_ERROR", "Error", MB_OK | MB_ICONERROR);
                 break;
             }
 
-            std::string senderIP = inet_ntoa(clientAddr.sin_addr);
-            if (senderIP == params.allowedSenderIP) {
+            if (recvLen <= 0) continue; // Ignore zero-length packets
 
-                MyFile.write(buffer, recvLen);
-                MyFile.flush();
+            if (clientAddr.sin_addr.s_addr == allowedAddr.s_addr) {
+                outputFile.write(buffer, recvLen);
+                outputFile.flush();
             }
         }
     }
 
     if (sock != INVALID_SOCKET) closesocket(sock);
-    if (MyFile.is_open()) MyFile.close();
+    if (outputFile.is_open()) outputFile.close();
 }
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
@@ -503,8 +509,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 GetWindowText(GetDlgItem(hwnd, INPUT4_ID), input2, sizeof(input2));
                 GetWindowText(GetDlgItem(hwnd, INPUT5_ID), inputTGSNodeID, sizeof(inputTGSNodeID));
 
-                inputSrcIPStr = std::string(inputSrcIP);
-                inputDstIPStr = std::string(inputDstIP);
+                inputStrSrcIP = std::string(inputSrcIP);
+                inputStrDstIP = std::string(inputDstIP);
                 inputPort1 = atoi(input1);
                 inputPort2 = atoi(input2);
 
@@ -571,8 +577,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 ShowScene3(TRUE);
 
                 full_InfoText = (
-                    L"UDP Source IP: " + std::wstring(inputSrcIPStr.begin(), inputSrcIPStr.end()) +
-                    L"\nUDP Destination IP: " + std::wstring(inputDstIPStr.begin(), inputDstIPStr.end()) +
+                    L"UDP Source IP: " + std::wstring(inputStrSrcIP.begin(), inputStrSrcIP.end()) +
+                    L"\nUDP Destination IP: " + std::wstring(inputStrDstIP.begin(), inputStrDstIP.end()) +
                     L"\nUDP Destination Ports: " +
                     std::to_wstring(inputPort1) + L", " +
                     std::to_wstring(inputPort1 + 1) + L", " +
@@ -615,8 +621,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 ShowScene3(TRUE);
 
                 full_InfoText = (
-                    L"UDP Source IP: " + std::wstring(inputSrcIPStr.begin(), inputSrcIPStr.end()) +
-                    L"\nUDP Destination IP: " + std::wstring(inputDstIPStr.begin(), inputDstIPStr.end()) +
+                    L"UDP Source IP: " + std::wstring(inputStrSrcIP.begin(), inputStrSrcIP.end()) +
+                    L"\nUDP Destination IP: " + std::wstring(inputStrDstIP.begin(), inputStrDstIP.end()) +
                     L"\nUDP Destination Ports: " +
                     std::to_wstring(inputPort1) + L", " +
                     std::to_wstring(inputPort1 + 1) + L", " +
