@@ -8,12 +8,13 @@
 #include <utility>
 #include <iphlpapi.h>
 #include <ws2tcpip.h>
-#include <shobjidl.h> // for IFileDialog
+#include <shobjidl.h> // For IFileDialog (folder picker)
 #include <vector>
 #include "resources.h"
 #pragma comment(lib, "iphlpapi.lib")
 #pragma comment(lib, "ws2_32.lib")
 
+// --- Control IDs for buttons and input fields ---
 #define BUTTON1_ID 101
 #define BUTTON2_ID 102
 #define BUTTON3_ID 103
@@ -24,7 +25,7 @@
 #define INPUT4_ID 204
 #define INPUT5_ID 205
 
-// Scene 1 controls
+// --- Scene 1 (input form controls) ---
 HWND hText1, hInput1;
 HWND hText2, hInput2;
 HWND hText3, hInput3;
@@ -33,18 +34,18 @@ HWND hText5, hInput5;
 HWND ipText;
 HWND hButtonTest;
 
-// Scene 2 controls
+// --- Scene 2 (connection test results) ---
 HWND testText1, testText2, testText3, testText4;
 HWND hButtonStartAnyway;
 HWND hButton2;
 
-// Scene 3 controls
+// --- Scene 3 (capture info & stop button) ---
 HWND infoText;
 HWND capturingText;
 HWND hButtonStop;
 
-// Shared variables
-std::atomic<bool> running(false); // Start as false, start listeners only on button
+// --- Shared variables between scenes/threads ---
+std::atomic<bool> running(false); // Controls listener threads
 char inputDstIP[256], inputSrcIP[256], input1[256], input2[256], inputTGSNodeID[256];
 int inputPort1, inputPort2, testPorts[4];
 bool testsPassed = true;
@@ -52,6 +53,7 @@ std::string inputStrDstIP, inputStrSrcIP;
 std::wstring ethernetAddr, result, full_InfoText, TGSNodeID, chosenOutputDirectory;
 SYSTEMTIME sys_time;
 
+// --- Parameters for each listener thread ---
 struct ListenerParams {
     const char* localIP = nullptr;
     int localPort = -1;
@@ -60,17 +62,21 @@ struct ListenerParams {
     std::wstring fileName;
 
     ListenerParams() = default;
-    ListenerParams(const char* ip, int port, const char* allowedIP, bool recording, std::wstring  fName)
-        : localIP(ip), localPort(port), allowedSenderIP(allowedIP), startedRecording(recording), fileName(std::move(fName)) {}
+    ListenerParams(const char* ip, int port, const char* allowedIP, bool recording, std::wstring fName)
+        : localIP(ip), localPort(port), allowedSenderIP(allowedIP),
+          startedRecording(recording), fileName(std::move(fName)) {}
 };
 
+// Listener threads and their configs
 std::thread threads[4];
 ListenerParams listeners[4];
 bool listenersStarted = false;
 bool foundAddress = false;
 
-void ShowScene1(BOOL show)
-{
+// ------------------- UI Scene Toggles -------------------
+
+void ShowScene1(BOOL show) {
+    // Show or hide scene 1 controls (IP, ports, Node ID, Test button)
     ShowWindow(hText1, show);
     ShowWindow(hInput1, show);
     ShowWindow(hText2, show);
@@ -82,62 +88,60 @@ void ShowScene1(BOOL show)
     ShowWindow(hText5, show);
     ShowWindow(hInput5, show);
     ShowWindow(hButtonTest, show);
-    if (foundAddress) {
-        ShowWindow(ipText, show);
-    }
+    if (foundAddress) ShowWindow(ipText, show);
 }
 
-void ShowScene2(BOOL show)
-{
+void ShowScene2(BOOL show) {
+    // Show or hide test result labels + Start button
     ShowWindow(testText1, show);
     ShowWindow(testText2, show);
     ShowWindow(testText3, show);
     ShowWindow(testText4, show);
     ShowWindow(hButton2, show);
-    if (!testsPassed) {
-        ShowWindow(hButtonStartAnyway, show);
-    }
+    if (!testsPassed) ShowWindow(hButtonStartAnyway, show);
 }
 
-void ShowScene3(BOOL show)
-{
+void ShowScene3(BOOL show) {
+    // Show or hide capturing info + Stop button
     ShowWindow(infoText, show);
     ShowWindow(capturingText, show);
     ShowWindow(hButtonStop, show);
 }
 
+// ------------------- Utility Functions -------------------
+
 std::wstring findEthernetAddress() {
+    // Finds the IPv4 address of the "Ethernet" adapter
     ULONG outBufLen = 15000;
     auto adapterAddresses = static_cast<PIP_ADAPTER_ADDRESSES>(malloc(outBufLen));
     if (!adapterAddresses) return L"";
 
     ULONG retVal = GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_PREFIX, nullptr, adapterAddresses, &outBufLen);
+
     if (retVal == ERROR_BUFFER_OVERFLOW) {
+        // Retry with larger buffer
         free(adapterAddresses);
         adapterAddresses = static_cast<PIP_ADAPTER_ADDRESSES>(malloc(outBufLen));
         if (!adapterAddresses) return L"";
         retVal = GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_PREFIX, nullptr, adapterAddresses, &outBufLen);
-        // free(adapterAddresses);
     }
 
     if (retVal == NO_ERROR) {
+        // Look for Ethernet adapter and return its IPv4 address
         for (PIP_ADAPTER_ADDRESSES adapter = adapterAddresses; adapter; adapter = adapter->Next) {
             if (adapter->IfType == IF_TYPE_ETHERNET_CSMACD &&
                 wcscmp(adapter->FriendlyName, L"Ethernet") == 0) {
-
                 for (PIP_ADAPTER_UNICAST_ADDRESS unicast = adapter->FirstUnicastAddress;
-                     unicast;
-                     unicast = unicast->Next) {
-
+                     unicast; unicast = unicast->Next) {
                     if (unicast->Address.lpSockaddr->sa_family == AF_INET) {
                         auto* ipv4 = reinterpret_cast<sockaddr_in*>(unicast->Address.lpSockaddr);
                         std::string ipStr = inet_ntoa(ipv4->sin_addr);
-                        result = std::wstring(ipStr.begin(), ipStr.end()); // simple conversion
+                        result = std::wstring(ipStr.begin(), ipStr.end());
                         break;
                     }
                 }
             }
-            if (!result.empty()) break; // Stop once found
+            if (!result.empty()) break;
         }
     }
     free(adapterAddresses);
@@ -145,19 +149,18 @@ std::wstring findEthernetAddress() {
 }
 
 std::wstring ChooseOutputFolder(HWND hwnd) {
+    // Open a folder picker dialog, return chosen directory as wstring
     IFileDialog* pfd = nullptr;
     std::wstring folderPath;
-
     HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
     if (FAILED(hr)) return L"";
 
-    // Create dialog
     hr = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_ALL,
                           IID_IFileDialog, reinterpret_cast<void**>(&pfd));
     if (SUCCEEDED(hr)) {
         DWORD dwOptions;
         pfd->GetOptions(&dwOptions);
-        pfd->SetOptions(dwOptions | FOS_PICKFOLDERS); // folder picker mode
+        pfd->SetOptions(dwOptions | FOS_PICKFOLDERS);
         pfd->SetTitle(L"Select folder for recording files:");
 
         hr = pfd->Show(hwnd);
@@ -174,6 +177,20 @@ std::wstring ChooseOutputFolder(HWND hwnd) {
                 pItem->Release();
             }
         }
+
+        /*
+        if (SUCCEEDED(pfd->Show(hwnd))) {
+            IShellItem* pItem;
+            if (SUCCEEDED(pfd->GetResult(&pItem))) {
+                PWSTR pszFilePath = nullptr;
+                if (SUCCEEDED(pItem->GetDisplayName(SIGDN_FILESYSPATH, &pszFilePath))) {
+                    folderPath = pszFilePath;
+                    CoTaskMemFree(pszFilePath);
+                }
+                pItem->Release();
+            }
+        }
+         */
         pfd->Release();
     }
     CoUninitialize();
@@ -181,12 +198,11 @@ std::wstring ChooseOutputFolder(HWND hwnd) {
 }
 
 bool inputValuesPassTests() {
-    in_addr addr1{};
-    in_addr addr2{};
-
+    // Validate entered IPs and ports
+    in_addr addr1{}, addr2{};
     if (inputStrSrcIP.empty() || inputStrDstIP.empty()
         || inputStrSrcIP.find('-') != std::string::npos
-        || inputStrSrcIP.find('-') != std::string::npos
+        || inputStrDstIP.find('-') != std::string::npos
         || inputStrSrcIP == "0.0.0.0" || inputStrDstIP == "0.0.0.0"
         || inputPort1 > 65535 || inputPort2 > 65535
         || inputPort1 <= 0 || inputPort2 <= 0
@@ -224,6 +240,8 @@ void changeTestText(const std::string& inputStrDstIP, int port_num, int ports[],
             break;
     }
 }
+
+// ------------------- UDP Connection Functions -------------------
 
 bool testUdpCommunication(const char* localIP, int ports[], int portCount)
 {
@@ -441,12 +459,19 @@ void udpListener(ListenerParams params, HWND hwnd)
     if (outputFile.is_open()) outputFile.close();
 }
 
+// ------------------- GUI Functions -------------------
+
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
+    // The function that processes messages sent to the window.
+
     switch (uMsg)
     {
     case WM_CREATE:
     {
+        // WM_CREATE sets up the texts and scenes when the application is opened.
+        // This scenario happens is when the window is created.
+
         // Scene 1: Text labels as STATIC boxes, plus input boxes as EDIT boxes
         hText1 = CreateWindowW(L"STATIC", L"UDP Source IP:", WS_VISIBLE | WS_CHILD | ES_LEFT,
                                50, 20, 150, 20, hwnd, nullptr, nullptr, nullptr);
@@ -581,7 +606,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             // On either "Go Back" or "Start Recording" button pressed
             case BUTTON2_ID:
                 {
-                // If "Go Back"
+                // If button is in "Go Back" mode:
                 if (!testsPassed) {
                     ShowScene1(TRUE);
                     ShowScene2(FALSE);
@@ -589,7 +614,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     break;
                 }
 
-                // Else if "Start Recording"
+                // Else if button is in "Start Recording" mode:
 
                 // Ask user for output folder
                 chosenOutputDirectory = ChooseOutputFolder(hwnd);
@@ -633,7 +658,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
             }
 
             // On "Start Recording Anyway" button pressed
-            case BUTTON3_ID: { // At least one test failed but try and record all ports still.
+            case BUTTON3_ID: {
+                // At least one test failed but try and record all ports still.
 
                 // Ask user for output folder
                 chosenOutputDirectory = ChooseOutputFolder(hwnd);
@@ -681,6 +707,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
             // On "Stop Capturing" button pressed
             case BUTTON4_ID: {
+                // Resets the application and turns back to Scene 1, enabling recording multiple times.
 
                 // Stop listeners
                 running = false;
@@ -738,6 +765,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
     case WM_DESTROY:
         {
+        // This part executes when the exit button is pressed.
+        // Joins the threads and closes the application.
         running = false;
 
         for (int i = 0; i < 4; i++) {
@@ -760,6 +789,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
 {
+
+    // Function that starts the application by creating and showing the window.
 
     WSADATA wsa;
     if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
