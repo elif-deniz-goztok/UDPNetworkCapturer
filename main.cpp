@@ -815,7 +815,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
     HWND hwnd = CreateWindowEx(
         0,
         CLASS_NAME,
-        "TELEMETRY DATA RECORDER",
+        "UDP Network Capturer",
         (WS_OVERLAPPEDWINDOW & ~(WS_THICKFRAME | WS_MAXIMIZEBOX)),
         CW_USEDEFAULT, CW_USEDEFAULT, 450, 400,
         nullptr,
