@@ -46,11 +46,11 @@ HWND hButtonStop;
 
 // --- Shared variables between scenes/threads ---
 std::atomic<bool> running(false); // Controls listener threads
-char inputDstIP[256], inputSrcIP[256], input1[256], input2[256], inputTGSNodeID[256];
+char inputDstIP[256], inputSrcIP[256], input1[256], input2[256];
 int inputPort1, inputPort2, testPorts[4];
 bool testsPassed = true;
 std::string inputStrDstIP, inputStrSrcIP;
-std::wstring ethernetAddr, result, full_InfoText, TGSNodeID, chosenOutputDirectory;
+std::wstring ethernetAddr, result, full_InfoText, chosenOutputDirectory;
 SYSTEMTIME sys_time;
 
 // --- Parameters for each listener thread ---
@@ -208,7 +208,6 @@ bool inputValuesPassTests() {
         || inputPort1 <= 0 || inputPort2 <= 0
         || (inet_pton(AF_INET, inputSrcIP, &addr1) != 1)
         || (inet_pton(AF_INET, inputDstIP, &addr2) != 1)
-        || strlen(inputTGSNodeID) == 0
         ) {
             return false;
         }
@@ -381,10 +380,9 @@ void udpListener(ListenerParams params, HWND hwnd)
             return;
         }
 
-        // Example params.fileName = "ST1_MetaData"
-        // Example fullFileName = "ST1_MetaData_TGSNodeID_Year_Month_Day_Hour_Minute.bin"
+        // Example params.fileName = "Port1"
+        // Example fullFileName = "Port1_Year_Month_Day_Hour_Minute.bin"
         std::wstring fullFileName = (chosenOutputDirectory + L"\\" + params.fileName + L"_" +
-            TGSNodeID + L"_" +
             std::to_wstring(sys_time.wYear) + L"_" +
             std::to_wstring(sys_time.wMonth) + L"_" +
             std::to_wstring(sys_time.wDay) + L"_" +
@@ -497,11 +495,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
         // ------------------------------------------------------------------------------------
 
-        hText5 = CreateWindowW(L"STATIC", L"TGS Node ID:", WS_VISIBLE | WS_CHILD | ES_LEFT,
-                       50, 160, 150, 20, hwnd, nullptr, nullptr, nullptr);
-        hInput5 = CreateWindowW(L"EDIT", L"", WS_VISIBLE | WS_CHILD | WS_BORDER | ES_LEFT,
-                                50, 190, 150, 20, hwnd, reinterpret_cast<HMENU>(INPUT5_ID), nullptr, nullptr);
-
         if (foundAddress) {
             std::wstring text = L"Possible Destination IP: " + ethernetAddr + L" (Ethernet IP)";
             ipText = CreateWindowW(L"STATIC", text.c_str(),
@@ -558,7 +551,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 GetWindowText(GetDlgItem(hwnd, INPUT2_ID), inputDstIP, sizeof(inputDstIP));
                 GetWindowText(GetDlgItem(hwnd, INPUT3_ID), input1, sizeof(input1));
                 GetWindowText(GetDlgItem(hwnd, INPUT4_ID), input2, sizeof(input2));
-                GetWindowText(GetDlgItem(hwnd, INPUT5_ID), inputTGSNodeID, sizeof(inputTGSNodeID));
 
                 inputStrSrcIP = std::string(inputSrcIP);
                 inputStrDstIP = std::string(inputDstIP);
@@ -577,8 +569,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                     break;
                 }
 
-                std::string inputTGSNodeID_str = inputTGSNodeID; // narrow string from input
-                TGSNodeID = std::wstring(inputTGSNodeID_str.begin(), inputTGSNodeID_str.end());
 
                 testPorts[0] = inputPort1;
                 testPorts[1] = inputPort1 + 1;
@@ -738,7 +728,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
                 testsPassed = true;
                 chosenOutputDirectory.clear();
                 full_InfoText.clear();
-                TGSNodeID.clear();
 
                 // Reset test scene text
                 SetWindowText(testText1, "Test port");
